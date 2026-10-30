@@ -35,6 +35,20 @@ npm run preview   # локальный просмотр собранной ве�
 **Публиковать сайт можно только через GitHub Actions.** Единственный поддерживаемый способ —
 workflow `.github/workflows/deploy.yml` («Deploy to GitHub Pages»).
 
+### Что значит «опубликуй»
+
+Команда «опубликуй» (или «задеплой») — это полный цикл, а не только `git push`:
+
+1. Закоммитить изменения.
+2. Запушить в `origin/main`.
+3. Дать ссылку на коммит/пуш.
+4. Показать статус запуска GH Actions (номер run'а, итог: `queued` / `in_progress` /
+   `success` / `failure`, ссылка на run).
+5. Дать ссылку на сам сайт: https://mariakupershtokh.github.io/sovenok/
+
+Коротко: **закоммить → запушь на GitHub → дай ссылку на коммит → покажи статус GH Action → дай ссылку на сайт.**
+Пока деплой не завершился успехом, публикация не считается выполненной.
+
 - Триггеры: `push` в ветку `main` и ручной запуск `workflow_dispatch`.
 - Пайплайн: `npm ci` → `npm test` → `npm run build` → `upload-pages-artifact` → `deploy-pages`.
 - Источник GitHub Pages — GitHub Actions (`build_type: workflow`), не отдельная ветка.
