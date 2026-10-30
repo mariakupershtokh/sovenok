@@ -418,6 +418,39 @@ function assertBlockGrammar(result) {
   }
 }
 
+test("split routes finish in two rectangles and cross the cut once", () => {
+  const ratio = { H: 2, D: 1, V: 2 };
+  const finish = { x: 7, y: 7 };
+  const result = solveBoard(12, 8, { ratio, finish });
+  assert.equal(result.status, "solved");
+  assert.equal(result.method, "split");
+  assert.equal(verifyRoute(12, 8, result.path, result.quota, finish).valid, true);
+  assert.deepEqual(result.counts, result.quota);
+  assert.deepEqual(result.path.at(-1), finish);
+  let crossings = 0;
+  for (let i = 1; i < result.path.length; i++)
+    if ((result.path[i - 1].x < finish.x) !== (result.path[i].x < finish.x)) crossings++;
+  assert.equal(crossings, 1, "the route must not weave across the finish column");
+});
+
+test("split construction covers all four edges", () => {
+  const ratio = { H: 2, D: 1, V: 2 };
+  const cases = [
+    [9, 9, ratio, { x: 4, y: 8 }],
+    [9, 9, ratio, { x: 6, y: 0 }],
+    [7, 13, ratio, { x: 0, y: 8 }],
+    [4, 14, ratio, { x: 3, y: 7 }],
+  ];
+  for (const [columns, rows, ratio, finish] of cases) {
+    const result = solveBoard(columns, rows, { ratio, finish });
+    assert.equal(result.status, "solved", `${columns}x${rows} finish ${finish.x},${finish.y}`);
+    assert.equal(result.method, "split");
+    assert.deepEqual(result.path.at(-1), finish);
+    assert.equal(verifyRoute(columns, rows, result.path, result.quota, finish).valid, true);
+    assert.deepEqual(result.counts, result.quota);
+  }
+});
+
 test("finish choices carry verified block routes and preserve all quotas", () => {
   const result = findFinishChoices(3, 5, { timeLimitMs: 500 });
   assert.deepEqual(result.finishes.map(s => `${s.finish.x},${s.finish.y}`).sort(),

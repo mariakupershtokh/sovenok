@@ -354,6 +354,11 @@ export function solveBoard(
       message: `Локальная версия ограничена сторонами до ${MAX_SIDE}.`,
     };
   if (finish && (finish.x !== columns - 1 || finish.y !== rows - 1)) {
+    const split = findSplitRoute(columns, rows, finish, {
+      quota,
+      deadline: performance.now() + Math.min(timeLimitMs * 0.6, 900),
+    });
+    if (split) return split;
     const choices = findFinishChoices(columns, rows, { ratio, timeLimitMs });
     return choices.finishes.find((route) => route.finish.x === finish.x && route.finish.y === finish.y) ?? {
       status: "not-found", quota,
@@ -423,9 +428,15 @@ export function solveBoard(
 
 const moveKind = (a, b) => a.x === b.x ? "V" : a.y === b.y ? "H" : "D";
 
+function countMoves(path) {
+  const counts = { H: 0, D: 0, V: 0 };
+  for (let i = 1; i < path.length; i++)
+    counts[moveKind(path[i - 1], path[i])]++;
+  return counts;
+}
+
 // Each completed tile is a 2×2 pattern, or a straight piece on an odd border.
-function searchBlockFinishes(columns, rows, quota, deadline, onRoute, offsetX, offsetY) {
-  if (performance.now() >= deadline) return;
+function buildTiles(columns, rows, offsetX, offsetY) {
   const tiles = [], tileAt = new Uint16Array(columns * rows);
   const intervals = (length, offset) => {
     const result = [];
@@ -487,7 +498,25 @@ function searchBlockFinishes(columns, rows, quota, deadline, onRoute, offsetX, o
     }
     tile.neighbors.delete(index);
   }
-  const visited = new Uint8Array(tiles.length), path = [], segments = [], remaining = { ...quota };
+  return { tiles, tileAt, id };
+}
+
+// Depth-first traversal of the tile graph. `quota` is exact. With `end` the
+// route must finish exactly there, otherwise any border cell is accepted.
+function searchTiles(columns, rows, {
+  start = { x: 0, y: 0 },
+  end = null,
+  quota = null,
+  deadline = Infinity,
+  offsetX = false,
+  offsetY = false,
+  onRoute,
+  preferStrip = false,
+}) {
+  if (performance.now() >= deadline) return { nodes: 0 };
+  const { tiles, tileAt, id } = buildTiles(columns, rows, offsetX, offsetY);
+  const visited = new Uint8Array(tiles.length), path = [], segments = [], trail = [];
+  const remaining = quota ? { ...quota } : null;
   let nodes = 0, done = false;
   function visit(entry, depth) {
     if (done || performance.now() >= deadline) return;
@@ -499,32 +528,235 @@ function searchBlockFinishes(columns, rows, quota, deadline, onRoute, offsetX, o
       return route.exit && !visited[route.next];
     });
     const degree = (next) => [...tiles[next].neighbors].filter((i) => !visited[i]).length;
-    options.sort((a, b) => (a.next < 0 ? 0 : degree(a.next)) - (b.next < 0 ? 0 : degree(b.next)));
+    const previous = trail.at(-1);
+    const score = (route) =>
+      (preferStrip && route.pattern && route.pattern === previous ? -8 : 0) +
+      (route.next < 0 ? 0 : degree(route.next));
+    options.sort((a, b) => score(a) - score(b));
     for (const route of options) {
       const cost = { ...route.cost };
       if (route.exit) cost[moveKind(route.body.at(-1), route.exit)]++;
-      if (MOVE_NAMES.some((kind) => cost[kind] > remaining[kind])) continue;
-      for (const kind of MOVE_NAMES) remaining[kind] -= cost[kind];
+      if (remaining && MOVE_NAMES.some((kind) => cost[kind] > remaining[kind])) continue;
+      if (remaining) for (const kind of MOVE_NAMES) remaining[kind] -= cost[kind];
       const fromIndex = path.length;
       path.push(...route.body);
       segments.push({ kind: route.pattern ? "block" : "straight", pattern: route.pattern, fromIndex, toIndex: path.length - 1 });
       if (!route.exit) {
-        const finish = path.at(-1);
-        if (MOVE_NAMES.every((kind) => remaining[kind] === 0) &&
-          (finish.x === 0 || finish.x === columns - 1 || finish.y === 0 || finish.y === rows - 1))
-          done = onRoute(path.slice(), segments.slice());
+        const last = path.at(-1);
+        const reached = end
+          ? last.x === end.x && last.y === end.y
+          : last.x === 0 || last.x === columns - 1 || last.y === 0 || last.y === rows - 1;
+        const exact = !remaining || MOVE_NAMES.every((kind) => remaining[kind] === 0);
+        if (depth === tiles.length && reached && exact && onRoute &&
+          onRoute(path.slice(), segments.slice()) === true) done = true;
       } else {
         // A detached unvisited tile can never be reached later.
         const connected = nodes % 32 !== 0 || tiles.every((t, i) => visited[i] || i === route.next || [...t.neighbors].some((j) => !visited[j]));
-        if (connected) visit(route.exit, depth + 1);
+        if (connected) {
+          trail.push(route.pattern);
+          visit(route.exit, depth + 1);
+          trail.pop();
+        }
       }
       segments.pop(); path.length = fromIndex;
-      for (const kind of MOVE_NAMES) remaining[kind] += cost[kind];
+      if (remaining) for (const kind of MOVE_NAMES) remaining[kind] += cost[kind];
       if (done || performance.now() >= deadline) break;
     }
     visited[tileIndex] = 0;
   }
-  visit({ x: 0, y: 0 }, 1);
+  visit(start, 1);
+  return { nodes };
+}
+
+function searchBlockFinishes(columns, rows, quota, deadline, onRoute, offsetX, offsetY) {
+  return searchTiles(columns, rows, { quota, deadline, onRoute, offsetX, offsetY });
+}
+
+const tileVectorCache = new Map();
+
+// Count vectors the tile grammar can produce for a rectangle entered at the
+// bottom-left corner and left at the top-left one.
+function splitVectors(width, height, deadline) {
+  const key = `${width}x${height}`;
+  const cached = tileVectorCache.get(key);
+  if (cached) return cached;
+  if (performance.now() >= deadline) return [];
+  const vectors = new Map();
+  let timedOut = false, routes = 0;
+  const offsets = (length) => (length % 2 && length > 1 ? [false, true] : [false]);
+  for (const offsetX of offsets(width)) {
+    for (const offsetY of offsets(height)) {
+      searchTiles(width, height, {
+        end: { x: 0, y: height - 1 },
+        deadline,
+        offsetX,
+        offsetY,
+        onRoute: (path) => {
+          const counts = countMoves(path);
+          vectors.set(`${counts.H},${counts.D},${counts.V}`, { counts, offsetX, offsetY });
+          routes++;
+          return routes >= 160 || vectors.size >= 48 || performance.now() >= deadline;
+        },
+      });
+      if (performance.now() >= deadline) { timedOut = true; break; }
+    }
+    if (timedOut) break;
+  }
+  const result = [...vectors.values()];
+  if (!timedOut) tileVectorCache.set(key, result);
+  return result;
+}
+
+function patternRuns(segments) {
+  let runs = 0, previous = null;
+  for (const segment of segments) {
+    const key = segment.pattern ?? segment.kind;
+    if (key !== previous) runs++;
+    previous = key;
+  }
+  return runs;
+}
+
+function rectangleOffsets(length) {
+  return length % 2 && length > 1 ? [false, true] : [false];
+}
+
+function findTailRoute(width, height, quota, deadline, start, end) {
+  let found = null;
+  for (const offsetX of rectangleOffsets(width)) {
+    for (const offsetY of rectangleOffsets(height)) {
+      searchTiles(width, height, {
+        start,
+        end,
+        quota,
+        deadline,
+        offsetX,
+        offsetY,
+        preferStrip: true,
+        onRoute: (path, segments) => { found = { path, segments }; return true; },
+      });
+      if (found || performance.now() >= deadline) return found;
+    }
+  }
+  return found;
+}
+
+// Left/right edges are transposed so the finish sits on the top or bottom edge.
+// No mirroring is used: a mirrored board would move the start corner too.
+function normalizeFinish(columns, rows, finish, quota) {
+  const transpose = finish.y !== 0 && finish.y !== rows - 1;
+  const width = transpose ? rows : columns;
+  const height = transpose ? columns : rows;
+  const x = transpose ? finish.y : finish.x;
+  const y = transpose ? finish.x : finish.y;
+  if (y !== 0 && y !== height - 1) return null;
+  return {
+    width,
+    height,
+    x,
+    top: y === height - 1,
+    quota: transpose
+      ? { H: quota.V, D: quota.D, V: quota.H }
+      : { ...quota },
+    transpose,
+  };
+}
+
+// Two-rectangle split along the finish column. The left rectangle is left on
+// the far side of the finish row, the path steps across, and the right
+// rectangle is finished at the corner of the finish cell. Both parts use the
+// approved block grammar, so the route stays striped instead of weaving across
+// the cut.
+export function findSplitRoute(columns, rows, finish, { quota, deadline = Infinity } = {}) {
+  if (!quota || !finish || performance.now() >= deadline) return null;
+  const normalized = normalizeFinish(columns, rows, finish, quota);
+  if (!normalized) return null;
+  const { width, height, x: split, quota: moves, transpose, top } = normalized;
+  if (split < 2 || width - split < 2 || height < 2) return null;
+  const vectors = splitVectors(width - split, height, deadline);
+  if (!vectors.length) return null;
+  const minimum = { H: Infinity, D: Infinity, V: Infinity };
+  for (const { counts } of vectors)
+    for (const kind of MOVE_NAMES) minimum[kind] = Math.min(minimum[kind], counts[kind]);
+  // The tail needs at least `minimum`, the bridge takes one H, and nothing else
+  // is spent outside the two rectangles.
+  const available = {
+    H: moves.H - 1 - minimum.H,
+    D: moves.D - minimum.D,
+    V: moves.V - minimum.V,
+  };
+  if (MOVE_NAMES.some((kind) => available[kind] < 0)) return null;
+  // The first rectangle is left on the same row as the crossing; the second one
+  // starts on that row and finishes in the far corner of the finish cell.
+  const frontEnd = { x: split - 1, y: top ? 0 : height - 1 };
+  const tailStart = { x: 0, y: top ? 0 : height - 1 };
+  const tailEnd = { x: 0, y: top ? height - 1 : 0 };
+  // Exact quotas prune far better than upper bounds: pair every reachable tail
+  // vector with its complementary front quota and search each one.
+  const quotas = [];
+  for (const { counts } of vectors) {
+    const need = {
+      H: moves.H - 1 - counts.H,
+      D: moves.D - counts.D,
+      V: moves.V - counts.V,
+    };
+    if (MOVE_NAMES.some((kind) => need[kind] < 0)) continue;
+    quotas.push({ need, tail: counts });
+  }
+  let best = null, attempts = 0;
+  for (const { need, tail } of quotas) {
+    if (attempts >= 1 || performance.now() >= deadline) break;
+    let first = null;
+    for (const offsetX of rectangleOffsets(split)) {
+      for (const offsetY of rectangleOffsets(height)) {
+        searchTiles(split, height, {
+          end: frontEnd,
+          quota: need,
+          deadline,
+          offsetX,
+          offsetY,
+          preferStrip: true,
+          onRoute: (path, segments) => { first = { path, segments }; return true; },
+        });
+        if (first || performance.now() >= deadline) break;
+      }
+      if (first || performance.now() >= deadline) break;
+    }
+    if (!first || performance.now() >= deadline) continue;
+    const second = findTailRoute(width - split, height, tail, deadline, tailStart, tailEnd);
+    if (!second) continue;
+    attempts++;
+    const path2 = [
+      ...first.path,
+      ...second.path.map(({ x, y }) => ({ x: x + split, y })),
+    ];
+    const segments = [
+      ...first.segments,
+      { kind: "bridge", fromIndex: first.path.length - 1, toIndex: first.path.length },
+      ...second.segments.map((segment) => ({
+        ...segment,
+        fromIndex: segment.fromIndex + first.path.length,
+        toIndex: segment.toIndex + first.path.length,
+      })),
+    ];
+    const score = patternRuns(segments);
+    if (!best || score < best.score) best = { path: path2, segments, score };
+  }
+  if (!best) return null;
+  const path = best.path.map((cell) =>
+    transpose ? { x: cell.y, y: cell.x } : { ...cell });
+  const counts = countMoves(path);
+  if (MOVE_NAMES.some((kind) => counts[kind] !== quota[kind])) return null;
+  return {
+    status: "solved",
+    path,
+    segments: best.segments,
+    quota,
+    counts,
+    finish,
+    method: "split",
+    transposed: transpose,
+  };
 }
 
 export function findFinishChoices(columns, rows, { ratio = DEFAULT_RATIO, timeLimitMs = 1500 } = {}) {
@@ -563,12 +795,14 @@ export function findFinishChoices(columns, rows, { ratio = DEFAULT_RATIO, timeLi
         layouts.push({ transposed, width, height, ox, oy });
   }
   const started = performance.now(), budget = Number.isFinite(timeLimitMs) ? Math.max(0, timeLimitMs) : 1500;
+  const blockStart = performance.now();
   for (const [i, layout] of layouts.entries()) {
     if (finishes.size === candidates.length) break;
     const { transposed, width, height, ox, oy } = layout;
+    const sliceEnd = blockStart + (started + budget - blockStart) * (i + 1) / layouts.length;
     searchBlockFinishes(width, height,
       transposed ? { H: quota.V, D: quota.D, V: quota.H } : quota,
-      started + budget * (i + 1) / layouts.length,
+      Math.max(blockStart, sliceEnd),
       (path, segments) => accept(transposed ? path.map(({ x, y }) => ({ x: y, y: x })) : path, segments, transposed), ox, oy);
   }
   return { type: "finishes", finishes: [...finishes.values()], unresolved: candidates.length - finishes.size };

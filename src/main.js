@@ -415,7 +415,8 @@ function selectFinish(event) {
   if (!data) return;
   choosingFinish = false;
   $("finish-prompt").hidden = true;
-  showSolution(data);
+  finish = { x: data.finish.x, y: data.finish.y };
+  buildRoute();
   $("choose-finish").focus();
 }
 
@@ -471,8 +472,6 @@ function startPlayback() {
 
 function buildRoute() {
   if (!ratio || !validateDimensions(columns, rows, ratio, finish ?? undefined).valid) return;
-  const cached = finishChoices?.finishes?.find((data) => data.finish.x === finish.x && data.finish.y === finish.y);
-  if (cached) { stopPlayback(); showSolution(cached); return; }
   stopPlayback();
   solution = null;
   step = 0;
