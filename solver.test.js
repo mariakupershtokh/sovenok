@@ -5,6 +5,7 @@ import {
   MAX_SIDE,
   PATTERNS,
   findBoardChoices,
+  findCornerBoardSuggestions,
   findFinishChoices,
   getFinishCells,
   solveBoard,
@@ -501,6 +502,33 @@ test("the fixed corner finish falls back to the block tiling", () => {
     solveCorner(MAX_SIDE + 1, 1, { ratio: { H: 1, D: 0, V: 0 } }).status,
     "not-found",
   );
+});
+
+test("board suggestions are verified and start from the smallest corner board", () => {
+  const ratio = { H: 1, D: 2, V: 4 };
+  const suggestions = findCornerBoardSuggestions(ratio);
+  assert.equal(suggestions.valid, true);
+  assert.equal(suggestions.boards.length, 4);
+  assert.deepEqual(suggestions.boards[0], { columns: 3, rows: 5 });
+  for (const board of suggestions.boards)
+    assert.equal(
+      solveCorner(board.columns, board.rows, { ratio, timeLimitMs: 500 })
+        .status,
+      "solved",
+    );
+
+  const fallback = findCornerBoardSuggestions({ H: 1, D: 1, V: 3 });
+  assert.deepEqual(fallback.boards[0], { columns: 3, rows: 7 });
+  assert.ok(fallback.boards.length >= 3);
+  assert.ok(fallback.boards.some((board) => board.columns === 3 && board.rows === 17));
+
+  assert.deepEqual(findCornerBoardSuggestions({ H: 0, D: 1, V: 1 }).boards, []);
+  assert.equal(
+    findCornerBoardSuggestions({ H: 1, D: 1, V: 3 }, { limit: 2 }).boards
+      .length,
+    2,
+  );
+  assert.equal(findCornerBoardSuggestions(null).valid, false);
 });
 
 test("every offered board has at least one verified border finish", () => {

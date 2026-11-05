@@ -862,3 +862,56 @@ export function findBoardChoices(ratio, maxSide = MAX_SIDE) {
     minimumByConditions: candidates[0] ?? null,
   };
 }
+
+// Small verified boards offered as clickable examples for the current ratio.
+// Candidates are tried from the smallest area upwards, so a successful strip
+// construction wins without scanning all 50 × 50 sizes. The fallback search is
+// capped globally: suggestions are a convenience, not a completeness claim.
+export function findCornerBoardSuggestions(
+  ratio,
+  { limit = 4, maxSide = MAX_SIDE, timeLimitMs = 1200 } = {},
+) {
+  const checkedRatio = validateRatio(ratio);
+  if (!checkedRatio.valid)
+    return { valid: false, message: checkedRatio.message, boards: [] };
+  if (!Number.isSafeInteger(limit) || limit < 1) return { valid: true, boards: [] };
+  const size = Math.min(maxSide, MAX_SIDE);
+  const candidates = [];
+  for (let columns = 1; columns <= size; columns++) {
+    for (let rows = 1; rows <= size; rows++) {
+      if (validateDimensions(columns, rows, ratio).valid)
+        candidates.push({ columns, rows });
+    }
+  }
+  const compare = (a, b) =>
+    a.columns * a.rows - b.columns * b.rows ||
+    Math.min(a.columns, a.rows) - Math.min(b.columns, b.rows) ||
+    a.columns - b.columns;
+  candidates.sort(compare);
+  const deadline = performance.now() + timeLimitMs;
+  const boards = [];
+  let fallbackTries = 0;
+  for (const board of candidates) {
+    if (boards.length >= limit) break;
+    const remaining = Math.max(0, deadline - performance.now());
+    if (
+      solveBoard(board.columns, board.rows, {
+        ratio,
+        timeLimitMs: Math.min(200, remaining),
+      }).status === "solved"
+    ) {
+      boards.push(board);
+      continue;
+    }
+    if (fallbackTries >= 8 || remaining === 0) continue;
+    fallbackTries++;
+    if (
+      solveCorner(board.columns, board.rows, {
+        ratio,
+        timeLimitMs: Math.min(200, remaining),
+      }).status === "solved"
+    )
+      boards.push(board);
+  }
+  return { valid: true, boards };
+}

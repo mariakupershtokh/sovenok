@@ -91,10 +91,12 @@
         <section class="workspace" aria-label="Конструктор маршрута">
           <aside class="settings panel">
             <div class="section-kicker">01 / Соотношение ходов</div>
-            <h2 class="ratio-prompt">
-              Задайте соотношение горизонтальных, диагональных и вертикальных
-              ходов короля
-            </h2>
+            <h2 class="ratio-prompt">Задайте соотношение ходов короля</h2>
+            <p class="move-key">
+              <span><b class="h-color">H</b> — горизонтальный ход</span>
+              <span><b class="d-color">D</b> — диагональный ход</span>
+              <span><b class="v-color">V</b> — вертикальный ход</span>
+            </p>
             <form id="ratio-form" novalidate>
               <div class="ratio-inputs">
                 <label for="ratio-h"
@@ -203,6 +205,13 @@
                 /></label>
               </div>
               <p class="field-hint">От 1 до 50 по каждой стороне.</p>
+              <div class="suggestions" id="suggestions" hidden>
+                <div class="suggestions-title">Проходимые доски</div>
+                <div class="suggestions-list" id="suggestions-list"></div>
+                <p class="field-hint" id="suggestions-hint">
+                  Нажмите на размер, чтобы подставить его.
+                </p>
+              </div>
               <button id="check" class="button primary" type="button">
                 <span>Проверить поле</span><span aria-hidden="true">↗</span>
               </button>

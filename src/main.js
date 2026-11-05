@@ -16,6 +16,8 @@ let step = 0;
 let timer = null;
 let busy = false;
 let checkTimer = null;
+let suggestWorker = null;
+let suggestionKey = "";
 
 const moveType = (a, b) => (a.x === b.x ? "V" : a.y === b.y ? "H" : "D");
 const playIcon =
@@ -36,6 +38,80 @@ function setVerdict(state, title, text) {
   $("verdict-icon").textContent = verdictIcons[state] ?? "?";
   $("verdict-title").textContent = title;
   $("verdict-text").textContent = text;
+}
+
+function hideSuggestions() {
+  $("suggestions").hidden = true;
+  $("suggestions-list").innerHTML = "";
+  $("suggestions-hint").hidden = false;
+}
+
+function showSuggestions(boards) {
+  const list = $("suggestions-list");
+  $("suggestions").hidden = false;
+  list.innerHTML = "";
+  if (!boards.length) {
+    list.innerHTML =
+      '<span class="suggestions-empty">Пока не удалось подобрать проходимую доску для этого соотношения.</span>';
+    $("suggestions-hint").hidden = true;
+    return;
+  }
+  $("suggestions-hint").hidden = false;
+  for (const board of boards) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${board.columns} × ${board.rows}`;
+    button.title = `${board.columns * board.rows} клеток`;
+    button.addEventListener("click", () => {
+      columnsInput.value = board.columns;
+      rowsInput.value = board.rows;
+      check();
+    });
+    list.append(button);
+  }
+}
+
+// Suggestions only depend on the ratio, so an already requested set is reused
+// while the user changes the size.
+function requestSuggestions() {
+  const next = readRatio();
+  if (!validateRatio(next).valid) {
+    suggestWorker?.terminate();
+    suggestWorker = null;
+    suggestionKey = "";
+    hideSuggestions();
+    return;
+  }
+  const key = `${next.H}:${next.D}:${next.V}`;
+  if (key === suggestionKey) return;
+  suggestionKey = key;
+  suggestWorker?.terminate();
+  const activeWorker = new Worker(
+    new URL("./solver.worker.js", import.meta.url),
+    { type: "module" },
+  );
+  suggestWorker = activeWorker;
+  const settle = () => {
+    if (suggestWorker !== activeWorker) return false;
+    activeWorker.terminate();
+    suggestWorker = null;
+    return true;
+  };
+  activeWorker.onmessage = ({ data }) => {
+    if (!settle()) return;
+    if (data.valid === false) {
+      suggestionKey = "";
+      hideSuggestions();
+      return;
+    }
+    showSuggestions(data.boards ?? []);
+  };
+  activeWorker.onerror = () => {
+    if (!settle()) return;
+    suggestionKey = "";
+    hideSuggestions();
+  };
+  activeWorker.postMessage({ type: "suggest", ratio: next, limit: 4 });
 }
 
 const readRatio = () =>
@@ -226,6 +302,7 @@ function check() {
   const next = readRatio();
   const checkedRatio = validateRatio(next);
   renderRatio(next, checkedRatio);
+  requestSuggestions();
   if (!checkedRatio.valid) {
     abortResult();
     showEmptyState("Задайте соотношение", checkedRatio.message);
