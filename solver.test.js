@@ -8,6 +8,7 @@ import {
   findFinishChoices,
   getFinishCells,
   solveBoard,
+  solveCorner,
   validateDimensions,
   validateRatio,
   verifyRoute,
@@ -478,6 +479,47 @@ test("finish choices carry verified block routes and preserve all quotas", () =>
   assert.equal(unchanged.finishes[0].path.length, 2500);
   for (const [columns, rows] of [[Infinity, 3], [2.5, 3], [51, 2], [0, 2]])
     assert.deepEqual(findFinishChoices(columns, rows).finishes, []);
+});
+
+test("the fixed corner finish falls back to the block tiling", () => {
+  const ratio = { H: 1, D: 1, V: 3 };
+  assert.equal(solveBoard(3, 7, { ratio }).status, "not-found");
+  const result = solveCorner(3, 7, { ratio, timeLimitMs: 1500 });
+  assert.equal(result.status, "solved");
+  assert.deepEqual(result.path.at(-1), { x: 2, y: 6 });
+  assert.deepEqual(result.counts, result.quota);
+  assert.equal(verifyRoute(3, 7, result.path, result.quota).valid, true);
+
+  const flippedRatio = { H: 3, D: 1, V: 1 };
+  assert.equal(solveBoard(7, 3, { ratio: flippedRatio }).status, "not-found");
+  const flipped = solveCorner(7, 3, { ratio: flippedRatio, timeLimitMs: 1500 });
+  assert.equal(flipped.status, "solved");
+  assert.deepEqual(flipped.path.at(-1), { x: 6, y: 2 });
+  assert.equal(verifyRoute(7, 3, flipped.path, flipped.quota).valid, true);
+
+  assert.equal(
+    solveCorner(MAX_SIDE + 1, 1, { ratio: { H: 1, D: 0, V: 0 } }).status,
+    "not-found",
+  );
+});
+
+test("every offered board has at least one verified border finish", () => {
+  // Board choice (still available through the solver) enters each board through
+  // its finish list, so a board may only be offered when at least one border
+  // cell already has a checked route.
+  for (const ratio of [DEFAULT_RATIO, { H: 2, D: 1, V: 2 }]) {
+    const { boards } = findBoardChoices(ratio, 7);
+    assert.ok(boards.length > 0);
+    for (const { columns, rows } of boards) {
+      const { finishes } = findFinishChoices(columns, rows, { ratio, timeLimitMs: 300 });
+      assert.ok(finishes.length > 0, `${columns} x ${rows} has no finish`);
+      for (const route of finishes) {
+        assert.deepEqual(route.path.at(-1), route.finish);
+        assert.deepEqual(route.counts, route.quota);
+        assert.equal(verifyRoute(columns, rows, route.path, route.quota, route.finish).valid, true);
+      }
+    }
+  }
 });
 
 test("new patterns fill a 2x2 block before exiting, including upward VHVD", () => {

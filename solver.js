@@ -426,6 +426,33 @@ export function solveBoard(
   };
 }
 
+// The interface always finishes in the top-right corner. The strip
+// construction covers most boards; when it fails, try the approved block
+// tilings that finish in that corner, within the remaining time budget. A
+// missing route is never a proof that no route exists.
+export function solveCorner(
+  columns,
+  rows,
+  { ratio = DEFAULT_RATIO, timeLimitMs = 2500 } = {},
+) {
+  const deadline = performance.now() + timeLimitMs;
+  const result = solveBoard(columns, rows, {
+    ratio,
+    timeLimitMs: Math.max(0, deadline - performance.now()),
+  });
+  if (result.status !== "not-found") return result;
+  const choices = findFinishChoices(columns, rows, {
+    ratio,
+    timeLimitMs: Math.max(0, deadline - performance.now()),
+  });
+  return (
+    choices.finishes.find(
+      (route) =>
+        route.finish.x === columns - 1 && route.finish.y === rows - 1,
+    ) ?? result
+  );
+}
+
 const moveKind = (a, b) => a.x === b.x ? "V" : a.y === b.y ? "H" : "D";
 
 function countMoves(path) {

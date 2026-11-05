@@ -105,9 +105,9 @@
                     min="0"
                     step="1"
                     inputmode="numeric"
-                    placeholder="1"
+                    value="1"
                     required
-                    aria-describedby="validation"
+                    aria-describedby="verdict-text"
                   /><span
                     ><b class="h-color">H</b> × ходов по горизонтали</span
                   ></label
@@ -120,9 +120,9 @@
                     min="0"
                     step="1"
                     inputmode="numeric"
-                    placeholder="2"
+                    value="2"
                     required
-                    aria-describedby="validation"
+                    aria-describedby="verdict-text"
                   /><span
                     ><b class="d-color">D</b> × ходов по диагонали</span
                   ></label
@@ -135,9 +135,9 @@
                     min="0"
                     step="1"
                     inputmode="numeric"
-                    placeholder="4"
+                    value="4"
                     required
-                    aria-describedby="validation"
+                    aria-describedby="verdict-text"
                   /><span
                     ><b class="v-color">V</b> × ходов по вертикали</span
                   ></label
@@ -152,14 +152,6 @@
                 ><button type="button" data-ratio="2,1,2">2 : 1 : 2</button>
               </div>
             </form>
-            <div
-              id="validation"
-              class="validation"
-              role="status"
-              aria-live="polite"
-            >
-              Заполните три поля или выберите пример.
-            </div>
             <div id="quota-panel" hidden>
               <div class="quota-heading">
                 Всего ходов <span id="quota-total">—</span>
@@ -179,13 +171,58 @@
                 </div>
               </div>
               <p class="field-hint" id="multiplier"></p>
-              <button id="build" class="button primary" type="button">
-                <span>Построить маршрут</span><span aria-hidden="true">↗</span>
+            </div>
+
+            <div class="size-section">
+              <div class="section-kicker">02 / Размер поля</div>
+              <h2 class="ratio-prompt">Задайте число столбцов и строк</h2>
+              <div class="size-inputs">
+                <label for="columns"
+                  ><span>Столбцы <b>a</b></span
+                  ><input
+                    id="columns"
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value="3"
+                    inputmode="numeric"
+                    aria-describedby="verdict-text"
+                /></label>
+                <label for="rows"
+                  ><span>Строки <b>b</b></span
+                  ><input
+                    id="rows"
+                    type="number"
+                    min="1"
+                    max="50"
+                    step="1"
+                    value="5"
+                    inputmode="numeric"
+                    aria-describedby="verdict-text"
+                /></label>
+              </div>
+              <p class="field-hint">От 1 до 50 по каждой стороне.</p>
+              <button id="check" class="button primary" type="button">
+                <span>Проверить поле</span><span aria-hidden="true">↗</span>
               </button>
-              <details class="size-examples">
-                <summary id="examples-title">Проверенные размеры</summary>
-                <div class="presets" id="presets"></div>
-              </details>
+            </div>
+
+            <div
+              id="verdict"
+              class="verdict"
+              data-state="idle"
+              role="status"
+              aria-live="polite"
+            >
+              <span class="verdict-icon" id="verdict-icon" aria-hidden="true">?</span>
+              <div class="verdict-body">
+                <strong id="verdict-title">Задайте параметры</strong>
+                <p id="verdict-text">
+                  Проверим, можно ли пройти поле до правого верхнего угла,
+                  посетив каждую клетку ровно один раз.
+                </p>
+              </div>
             </div>
             <details class="math-rules">
               <summary>Условия подбора</summary>
@@ -202,8 +239,8 @@
               </p>
             </details>
             <p class="field-hint">
-              Локальная версия: стороны от 1 до 50, включая чётные. Показаны
-              размеры с проверенным обходом из разрешённых блоков.
+              Локальная версия: стороны от 1 до 50, включая чётные. Финиш
+              всегда в правом верхнем углу.
             </p>
             <div class="settings-bottom">
               <span class="live-dot"></span> Все вычисления в вашем браузере
@@ -211,30 +248,24 @@
           </aside>
           <div class="board-empty panel" id="board-empty">
             <span class="empty-ratio" aria-hidden="true">H : D : V</span>
-            <h2 id="empty-title">Сначала задайте соотношение</h2>
+            <h2 id="empty-title">Задайте соотношение и размер</h2>
             <p id="empty-description">
-              Подберём минимальную найденную доску, а затем дадим изменить её
-              размер.
+              Проверим, можно ли пройти поле до правого верхнего угла, посетив
+              каждую клетку ровно один раз.
             </p>
           </div>
           <div class="board-panel panel" id="board-panel" hidden>
-            <p class="size-prompt">Задайте размер шахматной доски</p>
             <div class="board-toolbar">
               <div class="board-title">
                 <h2 id="board-title">Доска 9 × 11</h2>
                 <span id="board-subtitle">99 клеток · 98 переходов</span>
               </div>
-              <button type="button" id="choose-finish" class="finish-button" aria-pressed="false" disabled>Задать финиш</button>
               <label class="number-toggle"
                 ><input type="checkbox" id="show-numbers" checked /><span
                   class="toggle-track"
                 ></span
                 ><span>Номера</span></label
               >
-            </div>
-            <div class="finish-prompt" id="finish-prompt" role="status" aria-live="polite" hidden>
-              <strong>Задай точку финиша</strong>
-              <span id="finish-help">Подбираем маршруты до клеток на границе…</span>
             </div>
             <div class="board-controls">
               <div class="board-stage" id="board-stage">
@@ -249,52 +280,6 @@
                 >
               </div>
 
-              <div class="axis-control axis-control-y">
-                <label for="rows">Строки <b>b</b></label>
-                <input
-                  id="rows-range"
-                  type="range"
-                  min="0"
-                  max="0"
-                  step="1"
-                  value="0"
-                  aria-label="Количество строк: доступные размеры"
-                />
-                <input
-                  id="rows"
-                  type="number"
-                  min="1"
-                  max="50"
-                  step="1"
-                  value="5"
-                  inputmode="numeric"
-                  aria-describedby="rows-help validation"
-                />
-                <span id="rows-help" class="axis-help"></span>
-              </div>
-              <div class="axis-control axis-control-x">
-                <label for="columns">Столбцы <b>a</b></label>
-                <input
-                  id="columns-range"
-                  type="range"
-                  min="0"
-                  max="0"
-                  step="1"
-                  value="0"
-                  aria-label="Количество столбцов: доступные размеры"
-                />
-                <input
-                  id="columns"
-                  type="number"
-                  min="1"
-                  max="50"
-                  step="1"
-                  value="3"
-                  inputmode="numeric"
-                  aria-describedby="columns-help validation"
-                />
-                <span id="columns-help" class="axis-help"></span>
-              </div>
             </div>
             <div class="board-summary">
               <span
@@ -302,7 +287,7 @@
                 class="route-status"
                 role="status"
                 aria-live="polite"
-                >Подбираем маршрут…</span
+                >Проверяем поле…</span
               >
               <div class="legend">
                 <span><i class="h-bg"></i>H</span
@@ -417,7 +402,6 @@
         >
       </footer>
     </div>
-    <div id="finish-tooltip" class="finish-tooltip" role="tooltip" hidden></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
