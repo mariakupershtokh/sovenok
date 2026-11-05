@@ -96,6 +96,15 @@ export function validateDimensions(
   if (finish.x === columns - 1 && finish.y === rows - 1) {
     if (quota.H === 0 && quota.D < (columns - 1) * rows / 2)
       return fail(`При H = 0 для финиша в верхнем правом углу необходимо D ≥ (a − 1) × b / 2 = ${(columns - 1) * rows / 2}.`);
+    // With b divisible by 4 the two-row bands force one extra full pass:
+    // the natural snake ends in the top-left corner, so finishing top-right
+    // needs (a − 1) more diagonals. Verified by exhaustive search on small
+    // boards (4 and 8 rows); for b ≡ 2 (mod 4) the base bound is already tight.
+    if (quota.H === 0 && rows % 4 === 0) {
+      const required = (columns - 1) * (rows / 2 + 1);
+      if (quota.D < required)
+        return fail(`При H = 0 и b = ${rows} (b кратно 4) для финиша в верхнем правом углу необходимо D ≥ (a − 1) × (b/2 + 1) = ${required}. Задано D = ${quota.D}.`);
+    }
     if (quota.V === 0 && quota.D < (rows - 1) * columns / 2)
       return fail(`При V = 0 для финиша в верхнем правом углу необходимо D ≥ (b − 1) × a / 2 = ${(rows - 1) * columns / 2}.`);
   }

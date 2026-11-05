@@ -380,6 +380,25 @@ test("zero-horizontal diagonal lower bound rejects 6x6 with five diagonals", () 
   assert.match(validateDimensions(6, 6, { H: 6, D: 1, V: 0 }).message, /D ≥.*15/);
 });
 
+test("four-row zero-horizontal boards need an extra diagonal pass", () => {
+  const rejected = validateDimensions(7, 4, { H: 0, D: 4, V: 5 });
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.message, /18/);
+  assert.match(rejected.message, /D = 12/);
+  assert.deepEqual(rejected.quota, { H: 0, D: 12, V: 15 });
+
+  assert.equal(validateDimensions(7, 4, { H: 0, D: 18, V: 9 }).valid, true);
+  assert.equal(validateDimensions(3, 4, { H: 0, D: 4, V: 7 }).valid, false);
+  assert.equal(validateDimensions(3, 4, { H: 0, D: 6, V: 5 }).valid, true);
+
+  // The extra pass belongs to b divisible by 4, not to every even b.
+  assert.equal(validateDimensions(3, 8, { H: 0, D: 8, V: 15 }).valid, false);
+  assert.equal(validateDimensions(3, 8, { H: 0, D: 10, V: 13 }).valid, true);
+  assert.equal(validateDimensions(3, 10, { H: 0, D: 10, V: 19 }).valid, true);
+  assert.equal(validateDimensions(3, 6, { H: 0, D: 6, V: 11 }).valid, true);
+  assert.equal(validateDimensions(3, 2, { H: 0, D: 2, V: 3 }).valid, true);
+});
+
 test("endpoint-aware necessary conditions retain every tiny-board oracle route", () => {
   for (const [columns, rows] of [[2, 2], [2, 3], [3, 2], [3, 3]]) {
     for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
