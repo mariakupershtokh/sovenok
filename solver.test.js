@@ -250,11 +250,11 @@ test("necessary arithmetic conditions never reject a route found by exhaustive s
           assert.ok(possible.has(`${H},${D},${V}`));
       }
   }
-  assert.equal(validateDimensions(3, 3, { H: 1, D: 0, V: 1 }).valid, true);
+  assert.equal(validateDimensions(3, 3, { H: 1, D: 0, V: 1 }).valid, false);
   assert.equal(
     exactQuotas(3, 3).has("4,0,4"),
     false,
-    "necessary conditions are not sufficient",
+    "the dedicated 3x3 rule rejects a quota that the arithmetic checks allowed",
   );
 });
 
@@ -333,7 +333,7 @@ test("choices are verified, sorted by area then smallest side, and respect zero 
   });
   assert.deepEqual(findBoardChoices({ H: 0, D: 1, V: 0 }).boards, []);
   const incomplete = findBoardChoices({ H: 1, D: 0, V: 1 });
-  assert.deepEqual(incomplete.minimumByConditions, { columns: 3, rows: 3 });
+  assert.deepEqual(incomplete.minimumByConditions, { columns: 3, rows: 7 });
   assert.ok(incomplete.unresolved > 0);
 });
 
@@ -354,9 +354,10 @@ test("transposition preserves physical quotas; unresolved construction stays hon
     solveBoard(9, 11, { timeLimitMs: 0 }),
   ])
     assert.equal(result.status, "not-found");
+  // The 3x3 zero-diagonal quota is now rejected by the dedicated 1:3 rule.
   assert.equal(
     solveBoard(3, 3, { ratio: { H: 1, D: 0, V: 1 } }).status,
-    "not-found",
+    "invalid",
   );
 });
 
@@ -479,6 +480,41 @@ test("zero-horizontal even-row boards require V at least a", () => {
         `${columns}x${rows}: ${key}`,
       );
     }
+});
+
+test("a 3 by 3 board without diagonals only admits the two 1:3 layouts", () => {
+  const allowed = [
+    { ratio: { H: 3, D: 0, V: 1 }, quota: { H: 6, D: 0, V: 2 } },
+    { ratio: { H: 1, D: 0, V: 3 }, quota: { H: 2, D: 0, V: 6 } },
+  ];
+  for (const { ratio, quota } of allowed) {
+    const validation = validateDimensions(3, 3, ratio);
+    assert.equal(validation.valid, true, JSON.stringify(ratio));
+    assert.deepEqual(validation.quota, quota);
+    const result = solveBoard(3, 3, { ratio });
+    assert.equal(result.status, "solved");
+    assert.deepEqual(result.counts, quota);
+    assert.deepEqual(result.path.at(-1), { x: 2, y: 2 });
+    assert.equal(verifyRoute(3, 3, result.path, result.quota).valid, true);
+  }
+
+  const rejected = validateDimensions(3, 3, { H: 1, D: 0, V: 1 });
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.message, /H = 6, V = 2/);
+  assert.match(rejected.message, /H = 2, V = 6/);
+  assert.match(rejected.message, /соотношение 1 : 3/);
+  assert.deepEqual(rejected.quota, { H: 4, D: 0, V: 4 });
+  assert.equal(solveBoard(3, 3, { ratio: { H: 1, D: 0, V: 1 } }).status, "invalid");
+
+  // The rule must not reject any realizable top-right route.
+  for (const key of exactQuotas(3, 3)) {
+    const [H, D, V] = key.split(",").map(Number);
+    assert.equal(
+      validateDimensions(3, 3, { H, D, V }).valid,
+      true,
+      `3x3: ${key}`,
+    );
+  }
 });
 
 test("endpoint-aware necessary conditions retain every tiny-board oracle route", () => {

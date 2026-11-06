@@ -113,6 +113,20 @@ export function validateDimensions(
       return fail(`При H = 0 и чётном b доска состоит из b/2 полос по две строки. В полосе между столбцами s и t нужно |s − t| + 1 вертикальных ходов, а соседние полосы соединяются диагональю со сдвигом на один столбец. Поэтому для финиша в верхнем правом углу необходимо V ≥ a = ${columns}. Задано V = ${quota.V}.`);
     if (quota.V === 0 && quota.D < (rows - 1) * columns / 2)
       return fail(`При V = 0 для финиша в верхнем правом углу необходимо D ≥ (b − 1) × a / 2 = ${(rows - 1) * columns / 2}.`);
+    // On a 3×3 board the first orthogonal move determines the rest of the
+    // path: it must pass the top-left corner and the bottom row, so only the
+    // two 1:3 layouts can finish in the top-right corner. Exhaustive search
+    // confirms that (H, V) = (4, 4) never reaches it.
+    if (
+      columns === 3 &&
+      rows === 3 &&
+      quota.D === 0 &&
+      !(
+        (quota.H === 6 && quota.V === 2) ||
+        (quota.H === 2 && quota.V === 6)
+      )
+    )
+      return fail(`Для квадрата 3 × 3 без диагональных ходов возможны только раскладки H = 6, V = 2 или H = 2, V = 6 (соотношение 1 : 3). Задано H = ${quota.H}, V = ${quota.V}.`);
   }
   if (
     quota.H > (columns - 1) * rows ||
