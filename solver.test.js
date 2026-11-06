@@ -6,6 +6,7 @@ import {
   PATTERNS,
   findBoardChoices,
   findCornerBoardSuggestions,
+  findCornerRatioSuggestions,
   findFinishChoices,
   getFinishCells,
   solveBoard,
@@ -713,6 +714,45 @@ test("board suggestions are verified and start from the smallest corner board", 
     2,
   );
   assert.equal(findCornerBoardSuggestions(null).valid, false);
+});
+
+test("ratio suggestions are primitive, verified, and depend on the board", () => {
+  const gcd = (a, b) => {
+    while (b) [a, b] = [b, a % b];
+    return a;
+  };
+  for (const [columns, rows] of [[3, 5], [4, 4], [6, 8], [13, 17]]) {
+    const result = findCornerRatioSuggestions(columns, rows, { limit: 4 });
+    assert.equal(result.valid, true);
+    assert.ok(result.ratios.length > 0, `${columns}x${rows}`);
+    const keys = new Set();
+    for (const ratio of result.ratios) {
+      const sum = ratio.H + ratio.D + ratio.V;
+      assert.equal((columns * rows - 1) % sum, 0, `${columns}x${rows}`);
+      assert.equal(gcd(gcd(ratio.H, ratio.D), ratio.V), 1);
+      assert.equal(validateDimensions(columns, rows, ratio).valid, true);
+      assert.equal(
+        solveCorner(columns, rows, { ratio, timeLimitMs: 500 }).status,
+        "solved",
+        `${columns}x${rows}: ${ratio.H}:${ratio.D}:${ratio.V}`,
+      );
+      const key = `${ratio.H}:${ratio.D}:${ratio.V}`;
+      assert.equal(keys.has(key), false);
+      keys.add(key);
+    }
+  }
+  assert.equal(findCornerRatioSuggestions(3, 5, { limit: 2 }).ratios.length, 2);
+  assert.deepEqual(findCornerRatioSuggestions(0, 5).ratios, []);
+  assert.equal(findCornerRatioSuggestions(3, 5, { limit: 0 }).valid, true);
+  const defaultRatio = { H: 1, D: 2, V: 4 };
+  assert.ok(
+    findCornerRatioSuggestions(3, 5, { limit: 20 }).ratios.some(
+      (ratio) =>
+        ratio.H === defaultRatio.H &&
+        ratio.D === defaultRatio.D &&
+        ratio.V === defaultRatio.V,
+    ),
+  );
 });
 
 test("every offered board has at least one verified border finish", () => {

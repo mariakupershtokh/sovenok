@@ -1,4 +1,8 @@
-import { findCornerBoardSuggestions, solveCorner } from "../solver.js";
+import {
+  findCornerBoardSuggestions,
+  findCornerRatioSuggestions,
+  solveCorner,
+} from "../solver.js";
 
 self.onmessage = ({ data }) => {
   try {
@@ -6,6 +10,15 @@ self.onmessage = ({ data }) => {
       self.postMessage({
         type: "suggest",
         ...findCornerBoardSuggestions(data.ratio, { limit: data.limit }),
+      });
+      return;
+    }
+    if (data.type === "ratio-suggest") {
+      self.postMessage({
+        type: "ratio-suggest",
+        ...findCornerRatioSuggestions(data.columns, data.rows, {
+          limit: data.limit,
+        }),
       });
       return;
     }

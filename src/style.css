@@ -1423,22 +1423,6 @@ footer > span:last-child span {
 input[aria-invalid="true"] {
   border-color: #b25c44 !important;
 }
-.ratio-examples {
-  display: flex;
-  gap: 7px;
-  align-items: center;
-  font-size: 9px;
-  color: #808c74;
-  margin: 12px 0 20px;
-}
-.ratio-examples button {
-  border: 1px solid #dce2d1;
-  border-radius: 4px;
-  background: #f4f7ed;
-  padding: 6px 9px;
-  color: var(--green);
-  font-size: 10px;
-}
 .board-empty {
   min-height: 560px;
   display: flex;

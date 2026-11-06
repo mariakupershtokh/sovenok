@@ -18,6 +18,8 @@ let busy = false;
 let checkTimer = null;
 let suggestWorker = null;
 let suggestionKey = "";
+let ratioSuggestWorker = null;
+let ratioSuggestionKey = "";
 
 const moveType = (a, b) => (a.x === b.x ? "V" : a.y === b.y ? "H" : "D");
 const playIcon =
@@ -69,6 +71,97 @@ function showSuggestions(boards) {
     });
     list.append(button);
   }
+}
+
+function hideRatioSuggestions() {
+  $("ratio-suggestions").hidden = true;
+  $("ratio-suggestions-list").innerHTML = "";
+  $("ratio-suggestions-hint").hidden = false;
+}
+
+function clearRatioSuggestions() {
+  ratioSuggestWorker?.terminate();
+  ratioSuggestWorker = null;
+  ratioSuggestionKey = "";
+  hideRatioSuggestions();
+}
+
+function showRatioSuggestions(ratios) {
+  const list = $("ratio-suggestions-list");
+  $("ratio-suggestions").hidden = false;
+  list.innerHTML = "";
+  if (!ratios.length) {
+    list.innerHTML =
+      '<span class="suggestions-empty">Пока не удалось подобрать соотношение для этой доски.</span>';
+    $("ratio-suggestions-hint").hidden = true;
+    return;
+  }
+  $("ratio-suggestions-hint").hidden = false;
+  for (const next of ratios) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${next.H} : ${next.D} : ${next.V}`;
+    button.title = "Подставить это соотношение ходов";
+    button.addEventListener("click", () => {
+      for (const kind of ["H", "D", "V"])
+        ratioInputs[kind].value = next[kind];
+      check();
+    });
+    list.append(button);
+  }
+}
+
+// Board -> ratio suggestions depend only on the entered size.
+function requestRatioSuggestions() {
+  const nextColumns = columnsInput.valueAsNumber;
+  const nextRows = rowsInput.valueAsNumber;
+  if (
+    !Number.isInteger(nextColumns) ||
+    !Number.isInteger(nextRows) ||
+    nextColumns < 1 ||
+    nextRows < 1 ||
+    nextColumns > MAX_SIDE ||
+    nextRows > MAX_SIDE
+  ) {
+    clearRatioSuggestions();
+    return;
+  }
+  const key = `${nextColumns}x${nextRows}`;
+  if (key === ratioSuggestionKey) return;
+  ratioSuggestionKey = key;
+  hideRatioSuggestions();
+  ratioSuggestWorker?.terminate();
+  const activeWorker = new Worker(
+    new URL("./solver.worker.js", import.meta.url),
+    { type: "module" },
+  );
+  ratioSuggestWorker = activeWorker;
+  const settle = () => {
+    if (ratioSuggestWorker !== activeWorker) return false;
+    activeWorker.terminate();
+    ratioSuggestWorker = null;
+    return true;
+  };
+  activeWorker.onmessage = ({ data }) => {
+    if (!settle()) return;
+    if (data.valid === false) {
+      ratioSuggestionKey = "";
+      hideRatioSuggestions();
+      return;
+    }
+    showRatioSuggestions(data.ratios ?? []);
+  };
+  activeWorker.onerror = () => {
+    if (!settle()) return;
+    ratioSuggestionKey = "";
+    hideRatioSuggestions();
+  };
+  activeWorker.postMessage({
+    type: "ratio-suggest",
+    columns: nextColumns,
+    rows: nextRows,
+    limit: 4,
+  });
 }
 
 // Suggestions only depend on the ratio, so an already requested set is reused
@@ -303,6 +396,7 @@ function check() {
   const checkedRatio = validateRatio(next);
   renderRatio(next, checkedRatio);
   requestSuggestions();
+  requestRatioSuggestions();
   if (!checkedRatio.valid) {
     abortResult();
     showEmptyState("Задайте соотношение", checkedRatio.message);
@@ -640,14 +734,6 @@ for (const input of Object.values(ratioInputs))
   input.addEventListener("input", scheduleCheck);
 for (const input of [columnsInput, rowsInput])
   input.addEventListener("input", scheduleCheck);
-for (const button of document.querySelectorAll("[data-ratio]"))
-  button.addEventListener("click", () => {
-    const values = button.dataset.ratio.split(",");
-    ["H", "D", "V"].forEach((kind, index) => {
-      ratioInputs[kind].value = values[index];
-    });
-    check();
-  });
 $("check").addEventListener("click", check);
 $("show-numbers").addEventListener("change", () =>
   document

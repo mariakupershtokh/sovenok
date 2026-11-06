@@ -148,10 +148,12 @@
               <p class="field-hint">
                 Целые числа от 0. Хотя бы одно больше нуля.
               </p>
-              <div class="ratio-examples">
-                <span>Примеры</span
-                ><button type="button" data-ratio="1,2,4">1 : 2 : 4</button
-                ><button type="button" data-ratio="2,1,2">2 : 1 : 2</button>
+              <div class="suggestions" id="ratio-suggestions" hidden>
+                <div class="suggestions-title">Подходящие соотношения</div>
+                <div class="suggestions-list" id="ratio-suggestions-list"></div>
+                <p class="field-hint" id="ratio-suggestions-hint">
+                  Нажмите на соотношение, чтобы подставить его.
+                </p>
               </div>
             </form>
             <div id="quota-panel" hidden>

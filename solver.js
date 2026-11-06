@@ -1095,3 +1095,100 @@ export function findCornerBoardSuggestions(
   }
   return { valid: true, boards };
 }
+
+function greatestCommonDivisor(a, b) {
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
+
+// The inverse helper for the interface: given a board, offer primitive
+// H : D : V ratios that already have a verified route to the top-right corner.
+// Only small ratio sums are enumerated, from the divisors of a × b − 1; this
+// keeps the search cheap and the suggested ratios readable. A missing result
+// means "not found within the budget", never "impossible".
+export function findCornerRatioSuggestions(
+  columns,
+  rows,
+  { limit = 4, componentCap = 16, maxSide = MAX_SIDE, timeLimitMs = 1200 } = {},
+) {
+  if (
+    !Number.isSafeInteger(columns) ||
+    !Number.isSafeInteger(rows) ||
+    columns < 1 ||
+    rows < 1 ||
+    columns > Math.min(maxSide, MAX_SIDE) ||
+    rows > Math.min(maxSide, MAX_SIDE)
+  )
+    return { valid: false, message: "Размеры должны быть целыми от 1 до 50.", ratios: [] };
+  if (!Number.isSafeInteger(limit) || limit < 1)
+    return { valid: true, ratios: [] };
+  const moves = columns * rows - 1;
+  if (moves < 1) return { valid: true, ratios: [] };
+  // For a divisor S of the number of moves the ratio components sum to S.
+  // Enumerate triples in which at least two components stay small; the third
+  // may be large. This includes the usual 0 : k : n families on prime-move
+  // boards without scanning all compositions of S.
+  const cap = Math.max(0, Math.min(componentCap, moves));
+  const seen = new Set();
+  const candidates = [];
+  for (let sum = 1; sum <= moves; sum++) {
+    if (moves % sum !== 0) continue;
+    const add = (H, D, V) => {
+      if (H < 0 || D < 0 || V < 0) return;
+      if (greatestCommonDivisor(greatestCommonDivisor(H, D), V) !== 1) return;
+      const key = `${H},${D},${V}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const spread = Math.max(H, D, V) - Math.min(H, D, V);
+      const zeros = Number(H === 0) + Number(D === 0) + Number(V === 0);
+      candidates.push({ H, D, V, sum, spread, zeros });
+    };
+    for (let H = 0; H <= Math.min(cap, sum); H++)
+      for (let D = 0; D <= Math.min(cap, sum - H); D++)
+        add(H, D, sum - H - D);
+    for (let H = 0; H <= Math.min(cap, sum); H++)
+      for (let V = 0; V <= Math.min(cap, sum - H); V++)
+        add(H, sum - H - V, V);
+    for (let D = 0; D <= Math.min(cap, sum); D++)
+      for (let V = 0; V <= Math.min(cap, sum - D); V++)
+        add(sum - D - V, D, V);
+  }
+  candidates.sort(
+    (a, b) =>
+      a.sum - b.sum ||
+      a.zeros - b.zeros ||
+      a.spread - b.spread ||
+      a.H - b.H ||
+      a.D - b.D ||
+      a.V - b.V,
+  );
+  const deadline = performance.now() + timeLimitMs;
+  const ratios = [];
+  let fallbackTries = 0;
+  for (const { H, D, V } of candidates) {
+    if (ratios.length >= limit || performance.now() >= deadline) break;
+    const ratio = { H, D, V };
+    if (!validateDimensions(columns, rows, ratio).valid) continue;
+    const remaining = Math.max(0, deadline - performance.now());
+    if (remaining === 0) break;
+    if (
+      solveBoard(columns, rows, {
+        ratio,
+        timeLimitMs: Math.min(150, remaining),
+      }).status === "solved"
+    ) {
+      ratios.push(ratio);
+      continue;
+    }
+    if (fallbackTries >= 10 || performance.now() >= deadline) continue;
+    fallbackTries++;
+    if (
+      solveCorner(columns, rows, {
+        ratio,
+        timeLimitMs: Math.min(200, Math.max(0, deadline - performance.now())),
+      }).status === "solved"
+    )
+      ratios.push(ratio);
+  }
+  return { valid: true, ratios };
+}
