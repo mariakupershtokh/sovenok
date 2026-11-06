@@ -105,6 +105,12 @@ export function validateDimensions(
       if (quota.D < required)
         return fail(`При H = 0 и b = ${rows} (b кратно 4) для финиша в верхнем правом углу необходимо D ≥ (a − 1) × (b/2 + 1) = ${required}. Задано D = ${quota.D}.`);
     }
+    // An even-height board splits into b/2 two-row bands. Without horizontal
+    // moves a band between columns s and t has exactly |s − t| + 1 vertical
+    // moves, and adjacent bands differ by one column. Summing the signed
+    // horizontal displacements over the whole path gives V ≥ a.
+    if (quota.H === 0 && rows % 2 === 0 && quota.V < columns)
+      return fail(`При H = 0 и чётном b доска состоит из b/2 полос по две строки. В полосе между столбцами s и t нужно |s − t| + 1 вертикальных ходов, а соседние полосы соединяются диагональю со сдвигом на один столбец. Поэтому для финиша в верхнем правом углу необходимо V ≥ a = ${columns}. Задано V = ${quota.V}.`);
     if (quota.V === 0 && quota.D < (rows - 1) * columns / 2)
       return fail(`При V = 0 для финиша в верхнем правом углу необходимо D ≥ (b − 1) × a / 2 = ${(rows - 1) * columns / 2}.`);
   }
@@ -348,6 +354,133 @@ function constructStrips(columns, rows, quota, deadline) {
   return { path, segments };
 }
 
+// The two-row band is the key to zero-horizontal boards. With only vertical
+// and diagonal moves its Hamiltonian path is unique for every allowed pair of
+// end columns: s is the bottom start, t the top finish, and the band spends
+// |s − t| + 1 vertical moves. These helpers build that path in linear time.
+function buildBandLeft(s) {
+  const cells = [];
+  let x = s,
+    y = 0;
+  cells.push({ x, y });
+  while (x > 0) {
+    x--;
+    y = 1 - y;
+    cells.push({ x, y });
+  }
+  y = 1 - y;
+  cells.push({ x: 0, y });
+  while (x < s) {
+    x++;
+    y = 1 - y;
+    cells.push({ x, y });
+  }
+  return cells;
+}
+
+function appendBandRight(columns, cells, t) {
+  if (t === columns - 1) {
+    cells.push({ x: t, y: 1 });
+    return cells;
+  }
+  const width = columns - 1 - t;
+  for (let step = 1; step <= width; step++)
+    cells.push({ x: t + step, y: step % 2 });
+  let x = columns - 1,
+    y = width % 2 ? 0 : 1;
+  cells.push({ x, y });
+  for (let step = 0; step < width; step++) {
+    x--;
+    y = 1 - y;
+    cells.push({ x, y });
+  }
+  return cells;
+}
+
+function buildBandRight(columns, s, t) {
+  const cells = buildBandLeft(s);
+  for (let x = s + 1; x <= t; x++) {
+    cells.push({ x, y: 0 });
+    if (x < t) cells.push({ x, y: 1 });
+  }
+  return appendBandRight(columns, cells, t);
+}
+
+function buildBandPath(columns, s, t) {
+  if (s === t)
+    return s === 0
+      ? appendBandRight(columns, [{ x: 0, y: 0 }], 0)
+      : buildBandLeft(columns - 1);
+  if (s < t) return buildBandRight(columns, s, t);
+  // Mirroring keeps the bottom-left start and the top finish at the required
+  // columns, and swaps only the direction of the diagonals.
+  return buildBandRight(columns, columns - 1 - s, columns - 1 - t).map(
+    ({ x, y }) => ({ x: columns - 1 - x, y }),
+  );
+}
+
+// Choose one end column for each band so that the exact vertical quota is met.
+// A band adds |start − end| + 1 vertical moves and the next band starts one
+// column left or right of the previous end. The depth-first search memoizes
+// failed (band, start, remaining) states and is capped by the caller's deadline.
+function findBandSequence(columns, bands, verticalMoves, deadline) {
+  const distance = verticalMoves - bands;
+  if (distance < 0 || (distance & 1) !== ((columns + bands) & 1)) return null;
+  const last = columns - 1;
+  const failed = new Set();
+  function search(index, start, remaining) {
+    if (performance.now() >= deadline) return null;
+    const left = bands - index;
+    if (remaining < 0 || remaining > left * last) return null;
+    // The remaining bands can shift the column by at most one per transition.
+    if (remaining < Math.abs(start - last) - (left - 1)) return null;
+    if (index === bands - 1)
+      return Math.abs(start - last) === remaining
+        ? [{ start, end: last }]
+        : null;
+    const key = `${index},${start},${remaining}`;
+    if (failed.has(key)) return null;
+    for (let end = 0; end < columns; end++) {
+      if (end === start && start !== 0 && start !== last) continue;
+      const cost = Math.abs(start - end);
+      if (cost > remaining) continue;
+      const nextStarts =
+        end === 0 ? [1] : end === last ? [last - 1] : [end + 1, end - 1];
+      for (const next of nextStarts) {
+        if (next < 0 || next >= columns) continue;
+        const rest = search(index + 1, next, remaining - cost);
+        if (rest) return [{ start, end }, ...rest];
+      }
+    }
+    failed.add(key);
+    return null;
+  }
+  return search(0, 0, distance);
+}
+
+function constructBands(columns, rows, quota, deadline) {
+  if (quota.H !== 0 || rows % 2 !== 0 || rows < 2) return null;
+  const bands = rows / 2;
+  const sequence = findBandSequence(columns, bands, quota.V, deadline);
+  if (!sequence) return null;
+  const path = [],
+    segments = [];
+  for (const [index, { start, end }] of sequence.entries()) {
+    const fromIndex = path.length;
+    const cells = buildBandPath(columns, start, end);
+    path.push(...cells.map(({ x, y }) => ({ x, y: index * 2 + y })));
+    segments.push({
+      kind: "band",
+      fromIndex,
+      toIndex: path.length - 1,
+      start,
+      end,
+      verticalMoves: Math.abs(start - end) + 1,
+    });
+  }
+  return { path, segments };
+}
+
 export function solveBoard(
   columns,
   rows,
@@ -426,6 +559,26 @@ export function solveBoard(
       method: "strips",
       transposed,
     };
+  }
+  if (quota.H === 0 && rows % 2 === 0) {
+    const construction = constructBands(
+      columns,
+      rows,
+      quota,
+      Math.min(deadline, performance.now() + 500),
+    );
+    if (construction) {
+      const checked = verifyRoute(columns, rows, construction.path, quota);
+      if (!checked.valid) throw new Error(checked.message);
+      return {
+        status: "solved",
+        ...construction,
+        quota,
+        counts: checked.counts,
+        method: "bands",
+        transposed: false,
+      };
+    }
   }
   return {
     status: "not-found",

@@ -49,6 +49,10 @@ const deltasFor = {
 };
 
 function assertGrammar(columns, rows, result) {
+  if (result.method === "bands") {
+    assertBandGrammar(columns, rows, result);
+    return;
+  }
   const { path, segments, transposed } = result;
   if (columns === 1 || rows === 1) {
     assert.equal(segments[0].kind, "straight");
@@ -131,6 +135,29 @@ function assertGrammar(columns, rows, result) {
     }
   }
   assert.equal(previousEnd, path.length - 1);
+}
+
+function assertBandGrammar(columns, rows, result) {
+  assert.equal(rows % 2, 0);
+  assert.equal(result.segments.length, rows / 2);
+  let previousEnd = -1,
+    verticals = 0;
+  for (const [index, segment] of result.segments.entries()) {
+    assert.equal(segment.kind, "band");
+    assert.equal(segment.fromIndex, previousEnd + 1);
+    previousEnd = segment.toIndex;
+    assert.equal(segment.toIndex - segment.fromIndex + 1, 2 * columns);
+    assert.equal(
+      segment.verticalMoves,
+      Math.abs(segment.start - segment.end) + 1,
+    );
+    verticals += segment.verticalMoves;
+    const cells = result.path.slice(segment.fromIndex, segment.toIndex + 1);
+    assert.ok(cells.every(({ y }) => y === 2 * index || y === 2 * index + 1));
+    assert.equal(new Set(cells.map(({ x, y }) => `${x},${y}`)).size, 2 * columns);
+  }
+  assert.equal(previousEnd, result.path.length - 1);
+  assert.equal(verticals, result.counts.V);
 }
 
 // Independent exhaustive oracle for tiny boards, without the block constructor.
@@ -397,6 +424,61 @@ test("four-row zero-horizontal boards need an extra diagonal pass", () => {
   assert.equal(validateDimensions(3, 10, { H: 0, D: 10, V: 19 }).valid, true);
   assert.equal(validateDimensions(3, 6, { H: 0, D: 6, V: 11 }).valid, true);
   assert.equal(validateDimensions(3, 2, { H: 0, D: 2, V: 3 }).valid, true);
+});
+
+test("zero-horizontal even-row bands build routes below the strip constructor", () => {
+  for (const [columns, rows, D, V] of [
+    [3, 4, 8, 3],
+    [4, 4, 11, 4],
+    [5, 4, 14, 5],
+    [7, 4, 20, 7],
+    [5, 6, 24, 5],
+    [6, 6, 29, 6],
+    [3, 8, 16, 7],
+  ]) {
+    const ratio = { H: 0, D, V };
+    const validation = validateDimensions(columns, rows, ratio);
+    assert.equal(validation.valid, true, `${columns}x${rows} ${D}:${V}`);
+    assert.deepEqual(validation.quota, { H: 0, D, V });
+    const result = solveBoard(columns, rows, { ratio });
+    assert.equal(result.status, "solved", `${columns}x${rows} ${D}:${V}`);
+    assert.equal(result.method, "bands");
+    assert.equal(result.transposed, false);
+    assert.deepEqual(result.counts, { H: 0, D, V });
+    assert.equal(verifyRoute(columns, rows, result.path, result.quota).valid, true);
+    assert.deepEqual(result.path.at(-1), {
+      x: columns - 1,
+      y: rows - 1,
+    });
+    assertGrammar(columns, rows, result);
+    const corner = solveCorner(columns, rows, { ratio, timeLimitMs: 1500 });
+    assert.equal(corner.status, "solved");
+    assert.deepEqual(corner.path.at(-1), {
+      x: columns - 1,
+      y: rows - 1,
+    });
+  }
+});
+
+test("zero-horizontal even-row boards require V at least a", () => {
+  const rejected = validateDimensions(5, 4, { H: 0, D: 16, V: 3 });
+  assert.equal(rejected.valid, false);
+  assert.match(rejected.message, /V ≥ a = 5/);
+  assert.match(rejected.message, /Задано V = 3/);
+  assert.equal(validateDimensions(4, 4, { H: 0, D: 13, V: 2 }).valid, false);
+  assert.equal(validateDimensions(8, 8, { H: 0, D: 59, V: 4 }).valid, false);
+  assert.equal(validateDimensions(5, 4, { H: 0, D: 14, V: 5 }).valid, true);
+  assert.equal(validateDimensions(6, 6, { H: 0, D: 29, V: 6 }).valid, true);
+  // The bound must not reject any route found by an independent oracle.
+  for (const [columns, rows] of [[2, 2], [2, 4], [3, 2], [3, 4], [4, 2], [4, 4]])
+    for (const key of exactQuotas(columns, rows)) {
+      const [H, D, V] = key.split(",").map(Number);
+      assert.equal(
+        validateDimensions(columns, rows, { H, D, V }).valid,
+        true,
+        `${columns}x${rows}: ${key}`,
+      );
+    }
 });
 
 test("endpoint-aware necessary conditions retain every tiny-board oracle route", () => {
