@@ -109,6 +109,10 @@ export function validateDimensions(
     // moves a band between columns s and t has exactly |s − t| + 1 vertical
     // moves, and adjacent bands differ by one column. Summing the signed
     // horizontal displacements over the whole path gives V ≥ a.
+    // The bound is tight: with k = b/2 passes the first contributes 1
+    // vertical, each of the k − 2 middle passes contributes 2, and the last
+    // contributes 1 + a − 2(k − 1); the total is a. For k = 1 only the pass
+    // to the opposite edge remains, so V = a and D = a − 1.
     if (quota.H === 0 && rows % 2 === 0 && quota.V < columns)
       return fail(`При H = 0 и чётном b доска состоит из b/2 полос по две строки. В полосе между столбцами s и t нужно |s − t| + 1 вертикальных ходов, а соседние полосы соединяются диагональю со сдвигом на один столбец. Поэтому для финиша в верхнем правом углу необходимо V ≥ a = ${columns}. Задано V = ${quota.V}.`);
     if (quota.V === 0 && quota.D < (rows - 1) * columns / 2)

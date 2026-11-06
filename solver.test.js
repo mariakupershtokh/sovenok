@@ -482,6 +482,53 @@ test("zero-horizontal even-row boards require V at least a", () => {
     }
 });
 
+test("zero-horizontal vertical minimum follows the two-row pass cases", () => {
+  // k = 1 (b = 2): only the pass to the opposite edge is possible, so the
+  // quota V = a, D = a − 1 is forced.
+  for (const columns of [2, 3, 4, 5, 6]) {
+    assert.deepEqual(
+      [...exactQuotas(columns, 2)].filter((key) => key.startsWith("0,")).sort(),
+      [`0,${columns - 1},${columns}`],
+      `${columns}x2`,
+    );
+  }
+
+  // k = 2 (b = 4): the first pass returns to the left edge, the second starts
+  // at column 1 and needs a − 1 vertical moves, so the minimum is a.
+  for (const columns of [2, 3, 4]) {
+    const minimum = Math.min(
+      ...[...exactQuotas(columns, 4)]
+        .filter((key) => key.startsWith("0,"))
+        .map((key) => Number(key.split(",")[2])),
+    );
+    assert.equal(minimum, columns, `${columns}x4`);
+  }
+
+  // k >= 3: 1 + 2(k − 2) + (1 + a − 2(k − 1)) = a whenever the last pass is
+  // not degenerate, i.e. a >= b − 2.
+  for (const [columns, rows] of [[6, 6], [6, 8], [8, 8], [8, 10], [10, 10]]) {
+    const bands = rows / 2;
+    const last = 1 + columns - 2 * (bands - 1);
+    assert.ok(last >= 1, `${columns}x${rows}`);
+    assert.equal(1 + 2 * (bands - 2) + last, columns);
+    const quota = { H: 0, D: columns * rows - 1 - columns, V: columns };
+    const result = solveBoard(columns, rows, { ratio: quota, timeLimitMs: 2000 });
+    assert.equal(result.status, "solved", `${columns}x${rows}`);
+    assert.equal(result.method, "bands");
+    assert.deepEqual(result.counts, quota);
+    assert.equal(verifyRoute(columns, rows, result.path, result.quota).valid, true);
+  }
+
+  // For a < b − 2 the last pass degenerates and the minimum exceeds a.
+  const narrowMinimum = Math.min(
+    ...[...exactQuotas(3, 6)]
+      .filter((key) => key.startsWith("0,"))
+      .map((key) => Number(key.split(",")[2])),
+  );
+  assert.equal(narrowMinimum, 5);
+  assert.ok(narrowMinimum > 3);
+});
+
 test("a 3 by 3 board without diagonals only admits the two 1:3 layouts", () => {
   const allowed = [
     { ratio: { H: 3, D: 0, V: 1 }, quota: { H: 6, D: 0, V: 2 } },
