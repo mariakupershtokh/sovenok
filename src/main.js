@@ -383,8 +383,11 @@ const samePath = (a, b) =>
 
 function updateRouteNav() {
   if (!routeNav) return;
+  const total = routeNav.complete
+    ? routeNav.total
+    : `≥${routeNav.total}`;
   $("route-counter").textContent =
-    `Обход ${routeNav.index + 1} из ${routeNav.routes.length}`;
+    `Обход ${routeNav.index + 1} из ${total}`;
   $("route-prev").disabled = routeNav.index === 0;
   $("route-next").disabled =
     routeNav.index === routeNav.routes.length - 1;
@@ -421,22 +424,30 @@ function requestRouteEnumeration() {
   };
   activeWorker.onmessage = ({ data }) => {
     if (!settle()) return;
-    // Even a single traversal is worth showing: the counter then reads
-    // "Обход 1 из 1" and explains why the arrows are missing. The strip is
-    // hidden only when the board is rejected or the count is not exact.
-    if (data.valid === false || !data.complete || data.routes.length < 1) {
+    // The strip appears for any board with at least one traversal: with a
+    // single route the counter reads "Обход 1 из 1" and explains why the
+    // arrows are disabled. It is hidden only when nothing was found.
+    if (data.valid === false || data.routes.length < 1) {
       routeEnumKey = "";
       return;
     }
+    // The stored list may not contain the route the solver drew first (the
+    // storage cap can truncate it), so always render the route at the chosen
+    // index to keep the board and the counter consistent.
     const index = solution
       ? Math.max(
           0,
           data.routes.findIndex((route) => samePath(route, solution.path)),
         )
       : 0;
-    routeNav = { routes: data.routes, index };
+    routeNav = {
+      routes: data.routes,
+      index: 0,
+      total: data.total,
+      complete: data.complete,
+    };
     $("route-nav").hidden = false;
-    updateRouteNav();
+    showRoute(index);
   };
   activeWorker.onerror = () => {
     if (!settle()) return;
@@ -447,7 +458,6 @@ function requestRouteEnumeration() {
     columns,
     rows,
     ratio,
-    limit: 30,
   });
 }
 

@@ -1219,15 +1219,15 @@ export function findCornerRatioSuggestions(
 
 // Full enumeration of routes with the exact quota from the bottom-left corner
 // to the top-right corner. The interface uses it to flip through distinct
-// traversals, so the search stops as soon as limit + 1 routes exist: the
-// flip-through controls are offered only when the total is small and exactly
-// known. complete = false means "more routes than the limit or the time budget
-// ran out", never an exact total. Routes are reordered greedily so that each
-// one differs from the previous in as few cells as possible.
+// traversals: up to limit routes are kept for the flip-through, while the
+// search always continues to the very end so that total is the exact number
+// of traversals. complete = false means the time budget ran out before the
+// count finished; total is then a lower bound. Routes are reordered greedily
+// so that each one differs from the previous in as few cells as possible.
 export function enumerateCornerRoutes(
   columns,
   rows,
-  { ratio = DEFAULT_RATIO, limit = 30, timeLimitMs = 1500 } = {},
+  { ratio = DEFAULT_RATIO, limit = 200, timeLimitMs = 1500 } = {},
 ) {
   const checkedRatio = validateRatio(ratio);
   if (!checkedRatio.valid)
@@ -1266,18 +1266,21 @@ export function enumerateCornerRoutes(
   const routes = [];
   const deadline = performance.now() + timeLimitMs;
   let complete = true;
+  let total = 0;
   const walk = (cell) => {
-    if (routes.length > limit || performance.now() > deadline) {
+    if (performance.now() > deadline) {
       complete = false;
       return;
     }
     if (cell === finish) {
-      routes.push(
-        path.map((index) => ({
-          x: index % columns,
-          y: Math.floor(index / columns),
-        })),
-      );
+      total++;
+      if (routes.length < limit)
+        routes.push(
+          path.map((index) => ({
+            x: index % columns,
+            y: Math.floor(index / columns),
+          })),
+        );
       return;
     }
     const x = cell % columns;
@@ -1321,7 +1324,10 @@ export function enumerateCornerRoutes(
       }
   };
   walk(0);
-  if (!complete) return { valid: true, routes: [], total: 0, complete: false };
+  if (routes.length < 2) {
+    // Nothing to flip through: a single traversal (or none) is still exact.
+    return { valid: true, routes, total, complete };
+  }
   const differ = (a, b) => {
     let count = 0;
     for (let i = 0; i < a.length; i++)
@@ -1345,5 +1351,5 @@ export function enumerateCornerRoutes(
       ordered.push(pool.splice(best, 1)[0]);
     }
   }
-  return { valid: true, routes: ordered, total: ordered.length, complete: true };
+  return { valid: true, routes: ordered, total, complete };
 }

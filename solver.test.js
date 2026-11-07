@@ -861,7 +861,7 @@ test("equality H + D = a − 1 allows only horizontal column changes", () => {
   }
 });
 
-test("route enumeration lists every traversal and stops beyond the limit", () => {
+test("route enumeration lists traversals and counts the exact total", () => {
   const zigzag = enumerateCornerRoutes(3, 4, { ratio: { H: 6, D: 0, V: 5 } });
   assert.equal(zigzag.valid, true);
   assert.equal(zigzag.complete, true);
@@ -897,22 +897,47 @@ test("route enumeration lists every traversal and stops beyond the limit", () =>
       true,
     );
 
-  // More than thirty routes: the result is explicitly incomplete and empty.
+  // Ninety-nine traversals: all kept within the default storage cap and the
+  // total is exact, so the interface can flip through every one of them.
   const many = enumerateCornerRoutes(3, 5, { ratio: { H: 1, D: 2, V: 4 } });
-  assert.equal(many.complete, false);
-  assert.equal(many.routes.length, 0);
+  assert.equal(many.complete, true);
+  assert.equal(many.total, 99);
+  assert.equal(many.routes.length, 99);
   assert.equal(
-    enumerateCornerRoutes(3, 5, { ratio: { H: 1, D: 2, V: 4 }, limit: 5 })
-      .complete,
-    false,
+    new Set(many.routes.map((path) => JSON.stringify(path))).size,
+    99,
+    "routes are distinct",
   );
-  assert.equal(
-    enumerateCornerRoutes(3, 5, {
-      ratio: { H: 1, D: 2, V: 4 },
-      timeLimitMs: 0,
-    }).complete,
-    false,
-  );
+  for (const path of many.routes.slice(0, 10))
+    assert.equal(
+      verifyRoute(3, 5, path, { H: 2, D: 4, V: 8 }).valid,
+      true,
+    );
+
+  // A small storage cap keeps only the first routes but still counts all of
+  // them, so the exact total survives the truncation.
+  const capped = enumerateCornerRoutes(3, 5, {
+    ratio: { H: 1, D: 2, V: 4 },
+    limit: 5,
+  });
+  assert.equal(capped.complete, true);
+  assert.equal(capped.total, 99);
+  assert.equal(capped.routes.length, 5);
+
+  // When the time budget runs out the count is an explicit lower bound and
+  // the stored routes stay usable for flipping.
+  const timedOut = enumerateCornerRoutes(9, 11, {
+    ratio: { H: 1, D: 2, V: 4 },
+    timeLimitMs: 50,
+  });
+  assert.equal(timedOut.complete, false);
+  assert.ok(timedOut.total >= timedOut.routes.length);
+  assert.ok(timedOut.routes.length <= 200);
+  for (const path of timedOut.routes.slice(0, 5))
+    assert.equal(
+      verifyRoute(9, 11, path, { H: 2, D: 4, V: 8 }).valid,
+      true,
+    );
 
   // A rejected board has no routes and the answer is still exact.
   assert.deepEqual(enumerateCornerRoutes(4, 4, { ratio: { H: 2, D: 1, V: 12 } }), {
