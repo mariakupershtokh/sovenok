@@ -690,6 +690,22 @@ test("the fixed corner finish falls back to the block tiling", () => {
   );
 });
 
+test("the exact search catches routes the constructions cannot build", () => {
+  // 9 x 6 with 28 : 0 : 25: the strip and band constructions do not cover
+  // this layout, yet a route exists (a reader sent a hand-drawn one).
+  const ratio = { H: 28, D: 0, V: 25 };
+  assert.equal(solveBoard(9, 6, { ratio }).status, "not-found");
+  const result = solveCorner(9, 6, { ratio, timeLimitMs: 2500 });
+  assert.equal(result.status, "solved");
+  assert.equal(result.method, "search");
+  assert.deepEqual(result.counts, { H: 28, D: 0, V: 25 });
+  assert.deepEqual(result.path.at(-1), { x: 8, y: 5 });
+  assert.equal(verifyRoute(9, 6, result.path, result.quota).valid, true);
+  // A zero budget stays honest: the search did not run, so the answer is
+  // "not found", never "impossible".
+  assert.equal(solveCorner(9, 6, { ratio, timeLimitMs: 0 }).status, "not-found");
+});
+
 test("board suggestions are verified and start from the smallest corner board", () => {
   const ratio = { H: 1, D: 2, V: 4 };
   const suggestions = findCornerBoardSuggestions(ratio);

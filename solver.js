@@ -649,15 +649,137 @@ export function solveCorner(
     ratio,
     timeLimitMs: Math.max(0, deadline - performance.now()),
   });
-  return (
-    choices.finishes.find(
-      (route) =>
-        route.finish.x === columns - 1 && route.finish.y === rows - 1,
-    ) ?? result
+  const chosen = choices.finishes.find(
+    (route) =>
+      route.finish.x === columns - 1 && route.finish.y === rows - 1,
   );
+  if (chosen) return chosen;
+  // Last resort: an exact search with pruning. It finds routes that none of
+  // the approved block families can build, while the time budget lasts.
+  const searched = searchExactRoute(
+    columns,
+    rows,
+    result.quota,
+    Math.max(0, deadline - performance.now()),
+  );
+  if (searched) {
+    const checked = verifyRoute(columns, rows, searched, result.quota);
+    if (!checked.valid) throw new Error(checked.message);
+    return {
+      status: "solved",
+      path: searched,
+      quota: result.quota,
+      counts: checked.counts,
+      segments: [],
+      method: "search",
+      transposed: false,
+    };
+  }
+  return result;
 }
 
 const moveKind = (a, b) => a.x === b.x ? "V" : a.y === b.y ? "H" : "D";
+
+// Exact depth-first search for one route with the exact quota. Constructions
+// cover most boards; this search catches the rest while the time budget
+// lasts. Prunes: the finish may only be entered last, horizontal and
+// vertical distances to the finish must be covered by the matching move
+// types with matching parity, and the unvisited cells must stay connected.
+// A timeout is not an impossibility proof, so the caller keeps its honest
+// "not found" wording when the search does not finish in time.
+function searchExactRoute(columns, rows, quota, deadline) {
+  if (
+    !Number.isSafeInteger(columns) ||
+    !Number.isSafeInteger(rows) ||
+    columns < 1 ||
+    rows < 1 ||
+    columns > MAX_SIDE ||
+    rows > MAX_SIDE ||
+    !quota ||
+    performance.now() >= deadline
+  )
+    return null;
+  const size = columns * rows;
+  const finish = size - 1;
+  const seen = new Uint8Array(size);
+  const path = [0];
+  const used = { H: 0, D: 0, V: 0 };
+  seen[0] = 1;
+  let complete = true;
+  // The remaining unvisited cells must form one region reachable from the
+  // next cell, otherwise the route can never come back to pick them up.
+  const connected = (from, remaining) => {
+    const stack = [from];
+    const mark = new Uint8Array(size);
+    mark[from] = 1;
+    let count = 1;
+    while (stack.length) {
+      const cell = stack.pop();
+      const x = cell % columns;
+      const y = (cell - x) / columns;
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || nx >= columns || ny < 0 || ny >= rows) continue;
+          const next = ny * columns + nx;
+          if (seen[next] || mark[next]) continue;
+          mark[next] = 1;
+          count++;
+          stack.push(next);
+        }
+    }
+    return count === remaining;
+  };
+  const walk = (cell) => {
+    if (performance.now() > deadline) {
+      complete = false;
+      return false;
+    }
+    if (path.length === size) return cell === finish;
+    const x = cell % columns;
+    const y = (cell - x) / columns;
+    const remaining = size - path.length;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= columns || ny < 0 || ny >= rows) continue;
+        const next = ny * columns + nx;
+        if (seen[next]) continue;
+        if (next === finish && remaining !== 1) continue;
+        const kind = dx && dy ? "D" : dx ? "H" : "V";
+        const rest = {
+          H: quota.H - used.H - (kind === "H" ? 1 : 0),
+          D: quota.D - used.D - (kind === "D" ? 1 : 0),
+          V: quota.V - used.V - (kind === "V" ? 1 : 0),
+        };
+        if (rest[kind] < 0) continue;
+        const toX = Math.abs(columns - 1 - nx);
+        const toY = Math.abs(rows - 1 - ny);
+        if (toX > rest.H + rest.D || (toX - rest.H - rest.D) % 2) continue;
+        if (toY > rest.V + rest.D || (toY - rest.V - rest.D) % 2) continue;
+        if (remaining > 1 && !connected(next, remaining)) continue;
+        seen[next] = 1;
+        path.push(next);
+        used[kind]++;
+        const found = walk(next);
+        if (found) return true;
+        used[kind]--;
+        path.pop();
+        seen[next] = 0;
+        if (!complete) return false;
+      }
+    return false;
+  };
+  if (!walk(0)) return null;
+  return path.map((index) => ({
+    x: index % columns,
+    y: Math.floor(index / columns),
+  }));
+}
 
 function countMoves(path) {
   const counts = { H: 0, D: 0, V: 0 };
