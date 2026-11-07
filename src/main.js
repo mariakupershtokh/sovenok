@@ -421,7 +421,10 @@ function requestRouteEnumeration() {
   };
   activeWorker.onmessage = ({ data }) => {
     if (!settle()) return;
-    if (data.valid === false || !data.complete || data.routes.length < 2) {
+    // Even a single traversal is worth showing: the counter then reads
+    // "Обход 1 из 1" and explains why the arrows are missing. The strip is
+    // hidden only when the board is rejected or the count is not exact.
+    if (data.valid === false || !data.complete || data.routes.length < 1) {
       routeEnumKey = "";
       return;
     }
