@@ -897,7 +897,7 @@ test("route enumeration lists every traversal and stops beyond the limit", () =>
       true,
     );
 
-  // More than twenty routes: the result is explicitly incomplete and empty.
+  // More than thirty routes: the result is explicitly incomplete and empty.
   const many = enumerateCornerRoutes(3, 5, { ratio: { H: 1, D: 2, V: 4 } });
   assert.equal(many.complete, false);
   assert.equal(many.routes.length, 0);

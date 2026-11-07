@@ -735,7 +735,6 @@ h2 {
   background: #f9faf4;
   border-top: 1px solid var(--border);
   padding: 14px 23px 16px;
-  margin-top: auto;
 }
 .playback-top {
   display: flex;

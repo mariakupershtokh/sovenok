@@ -1227,7 +1227,7 @@ export function findCornerRatioSuggestions(
 export function enumerateCornerRoutes(
   columns,
   rows,
-  { ratio = DEFAULT_RATIO, limit = 20, timeLimitMs = 1500 } = {},
+  { ratio = DEFAULT_RATIO, limit = 30, timeLimitMs = 1500 } = {},
 ) {
   const checkedRatio = validateRatio(ratio);
   if (!checkedRatio.valid)

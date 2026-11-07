@@ -444,7 +444,7 @@ function requestRouteEnumeration() {
     columns,
     rows,
     ratio,
-    limit: 20,
+    limit: 30,
   });
 }
 
