@@ -131,7 +131,31 @@ export function validateDimensions(
       )
     )
       return fail(`Для квадрата 3 × 3 без диагональных ходов возможны только раскладки H = 6, V = 2 или H = 2, V = 6 (соотношение 1 : 3). Задано H = ${quota.H}, V = ${quota.V}.`);
+    // The same exhaustive search for 3 × 4: without diagonals only the column
+    // snake (H = 2, V = 9) and the two mirrored zigzags (H = 6, V = 5) reach
+    // the top-right corner; every other D = 0 quota finishes elsewhere.
+    if (
+      columns === 3 &&
+      rows === 4 &&
+      quota.D === 0 &&
+      !(
+        (quota.H === 2 && quota.V === 9) ||
+        (quota.H === 6 && quota.V === 5)
+      )
+    )
+      return fail(`Для доски 3 × 4 без диагональных ходов финиш в верхнем правом углу возможен только при H = 2, V = 9 или H = 6, V = 5. Задано H = ${quota.H}, V = ${quota.V}.`);
   }
+  // If the path changes columns exactly a − 1 times, the column walk visits a
+  // distinct column at every change, so each column is covered by a single
+  // vertical run over all its rows. Such a run starts at an edge cell of the
+  // column, and a diagonal entry would start one row away from the previous
+  // column's edge cell — impossible once b ≥ 3. Hence equality forces D = 0.
+  // Two-row boards are a genuine exception: every cell of a two-cell column
+  // is an edge cell (3 × 2 with quotas 0 : 2 : 3 has a route).
+  if (rows >= 3 && quota.H + quota.D === columns - 1 && quota.D > 0)
+    return fail(`Если H + D = a − 1 = ${columns - 1}, все переходы между столбцами должны быть горизонтальными: каждый столбец проходится одним вертикальным проходом от края до края, и диагональный вход попадает в клетку, с которой весь столбец обойти нельзя. Задано D = ${quota.D} при H + D = ${quota.H + quota.D}.`);
+  if (columns >= 3 && quota.V + quota.D === rows - 1 && quota.D > 0)
+    return fail(`Если V + D = b − 1 = ${rows - 1}, все переходы между строками должны быть вертикальными: каждая строка проходится одним горизонтальным проходом от края до края, и диагональный вход попадает в клетку, с которой всю строку обойти нельзя. Задано D = ${quota.D} при V + D = ${quota.V + quota.D}.`);
   if (
     quota.H > (columns - 1) * rows ||
     quota.V > columns * (rows - 1) ||
@@ -1191,4 +1215,135 @@ export function findCornerRatioSuggestions(
       ratios.push(ratio);
   }
   return { valid: true, ratios };
+}
+
+// Full enumeration of routes with the exact quota from the bottom-left corner
+// to the top-right corner. The interface uses it to flip through distinct
+// traversals, so the search stops as soon as limit + 1 routes exist: the
+// flip-through controls are offered only when the total is small and exactly
+// known. complete = false means "more routes than the limit or the time budget
+// ran out", never an exact total. Routes are reordered greedily so that each
+// one differs from the previous in as few cells as possible.
+export function enumerateCornerRoutes(
+  columns,
+  rows,
+  { ratio = DEFAULT_RATIO, limit = 20, timeLimitMs = 1500 } = {},
+) {
+  const checkedRatio = validateRatio(ratio);
+  if (!checkedRatio.valid)
+    return {
+      valid: false,
+      message: checkedRatio.message,
+      routes: [],
+      total: 0,
+      complete: false,
+    };
+  if (
+    !Number.isSafeInteger(columns) ||
+    !Number.isSafeInteger(rows) ||
+    columns < 1 ||
+    rows < 1 ||
+    columns > MAX_SIDE ||
+    rows > MAX_SIDE
+  )
+    return {
+      valid: false,
+      message: "Размеры должны быть целыми от 1 до 50.",
+      routes: [],
+      total: 0,
+      complete: false,
+    };
+  if (!Number.isSafeInteger(limit) || limit < 1) limit = 1;
+  const validation = validateDimensions(columns, rows, ratio);
+  if (!validation.valid) return { valid: true, routes: [], total: 0, complete: true };
+  const quota = validation.quota;
+  const size = columns * rows;
+  const finish = size - 1;
+  const path = [0];
+  const seen = new Uint8Array(size);
+  seen[0] = 1;
+  const used = { H: 0, D: 0, V: 0 };
+  const routes = [];
+  const deadline = performance.now() + timeLimitMs;
+  let complete = true;
+  const walk = (cell) => {
+    if (routes.length > limit || performance.now() > deadline) {
+      complete = false;
+      return;
+    }
+    if (cell === finish) {
+      routes.push(
+        path.map((index) => ({
+          x: index % columns,
+          y: Math.floor(index / columns),
+        })),
+      );
+      return;
+    }
+    const x = cell % columns;
+    const y = (cell - x) / columns;
+    const remaining = {
+      H: quota.H - used.H,
+      D: quota.D - used.D,
+      V: quota.V - used.V,
+    };
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || nx >= columns || ny < 0 || ny >= rows) continue;
+        const next = ny * columns + nx;
+        if (seen[next]) continue;
+        // The finish may only be entered as the very last cell.
+        if (next === finish && path.length + 1 !== size) continue;
+        const kind = dx && dy ? "D" : dx ? "H" : "V";
+        if (!remaining[kind]) continue;
+        const left = {
+          H: remaining.H - (kind === "H" ? 1 : 0),
+          D: remaining.D - (kind === "D" ? 1 : 0),
+          V: remaining.V - (kind === "V" ? 1 : 0),
+        };
+        // Horizontal and vertical distances to the finish are covered only by
+        // the move types that change that coordinate, with matching parity.
+        const toX = Math.abs(columns - 1 - nx);
+        const toY = Math.abs(rows - 1 - ny);
+        if (toX > left.H + left.D || (toX - left.H - left.D) % 2) continue;
+        if (toY > left.V + left.D || (toY - left.V - left.D) % 2) continue;
+        seen[next] = 1;
+        path.push(next);
+        used[kind]++;
+        walk(next);
+        used[kind]--;
+        path.pop();
+        seen[next] = 0;
+        if (!complete) return;
+      }
+  };
+  walk(0);
+  if (!complete) return { valid: true, routes: [], total: 0, complete: false };
+  const differ = (a, b) => {
+    let count = 0;
+    for (let i = 0; i < a.length; i++)
+      if (a[i].x !== b[i].x || a[i].y !== b[i].y) count++;
+    return count;
+  };
+  const pool = routes.splice(0, routes.length);
+  const ordered = [];
+  if (pool.length) {
+    ordered.push(pool.shift());
+    while (pool.length) {
+      let best = 0;
+      let bestDistance = Infinity;
+      for (let i = 0; i < pool.length; i++) {
+        const distance = differ(ordered[ordered.length - 1], pool[i]);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = i;
+        }
+      }
+      ordered.push(pool.splice(best, 1)[0]);
+    }
+  }
+  return { valid: true, routes: ordered, total: ordered.length, complete: true };
 }

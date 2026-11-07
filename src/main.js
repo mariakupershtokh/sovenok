@@ -20,6 +20,9 @@ let suggestWorker = null;
 let suggestionKey = "";
 let ratioSuggestWorker = null;
 let ratioSuggestionKey = "";
+let routeEnumWorker = null;
+let routeEnumKey = "";
+let routeNav = null;
 
 const moveType = (a, b) => (a.x === b.x ? "V" : a.y === b.y ? "H" : "D");
 const playIcon =
@@ -331,6 +334,7 @@ function showSolution(data) {
     "Маршрут проверен · " + columns * rows + " клеток без повторов";
   drawBoard();
   setStep(data.path.length - 1);
+  requestRouteEnumeration();
 }
 
 function calculate(message, onResult) {
@@ -365,6 +369,85 @@ function showBoard() {
   $("board-panel").hidden = false;
 }
 
+function hideRouteNav() {
+  routeEnumWorker?.terminate();
+  routeEnumWorker = null;
+  routeEnumKey = "";
+  routeNav = null;
+  $("route-nav").hidden = true;
+}
+
+const samePath = (a, b) =>
+  a.length === b.length &&
+  a.every((cell, index) => cell.x === b[index].x && cell.y === b[index].y);
+
+function updateRouteNav() {
+  if (!routeNav) return;
+  $("route-counter").textContent =
+    `Обход ${routeNav.index + 1} из ${routeNav.routes.length}`;
+  $("route-prev").disabled = routeNav.index === 0;
+  $("route-next").disabled =
+    routeNav.index === routeNav.routes.length - 1;
+}
+
+function showRoute(index) {
+  if (!routeNav || !solution) return;
+  stopPlayback();
+  routeNav.index = index;
+  solution = { ...solution, path: routeNav.routes[index] };
+  drawBoard();
+  setStep(solution.path.length - 1);
+  updateRouteNav();
+}
+
+// Flip-through is offered only when the exact number of traversals is known
+// and small: the worker enumerates every route and reports complete = false
+// as soon as there are more than 20 of them or the time budget runs out.
+function requestRouteEnumeration() {
+  const key = `${columns}x${rows}:${ratio.H}:${ratio.D}:${ratio.V}`;
+  if (routeEnumKey === key) return;
+  hideRouteNav();
+  routeEnumKey = key;
+  const activeWorker = new Worker(
+    new URL("./solver.worker.js", import.meta.url),
+    { type: "module" },
+  );
+  routeEnumWorker = activeWorker;
+  const settle = () => {
+    if (routeEnumWorker !== activeWorker) return false;
+    activeWorker.terminate();
+    routeEnumWorker = null;
+    return true;
+  };
+  activeWorker.onmessage = ({ data }) => {
+    if (!settle()) return;
+    if (data.valid === false || !data.complete || data.routes.length < 2) {
+      routeEnumKey = "";
+      return;
+    }
+    const index = solution
+      ? Math.max(
+          0,
+          data.routes.findIndex((route) => samePath(route, solution.path)),
+        )
+      : 0;
+    routeNav = { routes: data.routes, index };
+    $("route-nav").hidden = false;
+    updateRouteNav();
+  };
+  activeWorker.onerror = () => {
+    if (!settle()) return;
+    routeEnumKey = "";
+  };
+  activeWorker.postMessage({
+    type: "enumerate",
+    columns,
+    rows,
+    ratio,
+    limit: 20,
+  });
+}
+
 function showEmptyState(title, description) {
   $("board-panel").hidden = true;
   $("board-empty").hidden = false;
@@ -378,6 +461,7 @@ function abortResult() {
   worker = null;
   busy = false;
   stopPlayback();
+  hideRouteNav();
   solution = null;
   step = 0;
   $("board-message").hidden = true;
@@ -439,6 +523,7 @@ function check() {
   const validation = validateDimensions(columns, rows, ratio);
   renderQuota(validation);
   stopPlayback();
+  hideRouteNav();
   solution = null;
   step = 0;
   showBoard();
@@ -741,6 +826,13 @@ $("show-numbers").addEventListener("change", () =>
     ?.classList.toggle("hide-numbers", !$("show-numbers").checked),
 );
 $("play").addEventListener("click", startPlayback);
+$("route-prev").addEventListener("click", () => {
+  if (routeNav && routeNav.index > 0) showRoute(routeNav.index - 1);
+});
+$("route-next").addEventListener("click", () => {
+  if (routeNav && routeNav.index < routeNav.routes.length - 1)
+    showRoute(routeNav.index + 1);
+});
 $("rewind").addEventListener("click", () => {
   stopPlayback();
   setStep(0);

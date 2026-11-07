@@ -4,6 +4,7 @@ import {
   DEFAULT_RATIO,
   MAX_SIDE,
   PATTERNS,
+  enumerateCornerRoutes,
   findBoardChoices,
   findCornerBoardSuggestions,
   findCornerRatioSuggestions,
@@ -753,6 +754,175 @@ test("ratio suggestions are primitive, verified, and depend on the board", () =>
         ratio.V === defaultRatio.V,
     ),
   );
+});
+
+test("a 3 by 4 board without diagonals only admits the snake and zigzag layouts", () => {
+  // Full search: exactly four D = 0 routes finish in the top-right corner,
+  // one column snake with H = 2, V = 9 and three zigzags with H = 6, V = 5.
+  const allowed = [
+    { ratio: { H: 2, D: 0, V: 9 }, total: 1 },
+    { ratio: { H: 6, D: 0, V: 5 }, total: 3 },
+  ];
+  for (const { ratio, total } of allowed) {
+    const validation = validateDimensions(3, 4, ratio);
+    assert.equal(validation.valid, true, JSON.stringify(ratio));
+    const enumeration = enumerateCornerRoutes(3, 4, { ratio });
+    assert.equal(enumeration.complete, true);
+    assert.equal(enumeration.total, total);
+    for (const path of enumeration.routes) {
+      assert.equal(verifyRoute(3, 4, path, validation.quota).valid, true);
+      assert.deepEqual(path.at(-1), { x: 2, y: 3 });
+    }
+  }
+
+  for (const ratio of [
+    { H: 4, D: 0, V: 7 },
+    { H: 8, D: 0, V: 3 },
+  ]) {
+    const rejected = validateDimensions(3, 4, ratio);
+    assert.equal(rejected.valid, false, JSON.stringify(ratio));
+    assert.match(rejected.message, /H = 2, V = 9 или H = 6, V = 5/);
+    assert.equal(solveBoard(3, 4, { ratio }).status, "invalid");
+  }
+  // These two fail the earlier arithmetic checks before the 3 × 4 rule.
+  assert.equal(validateDimensions(3, 4, { H: 10, D: 0, V: 1 }).valid, false);
+  assert.equal(validateDimensions(3, 4, { H: 0, D: 0, V: 11 }).valid, false);
+
+  // The rule must not reject any realizable top-right route.
+  for (const key of exactQuotas(3, 4)) {
+    const [H, D, V] = key.split(",").map(Number);
+    assert.equal(
+      validateDimensions(3, 4, { H, D, V }).valid,
+      true,
+      `3x4: ${key}`,
+    );
+  }
+});
+
+test("equality H + D = a − 1 allows only horizontal column changes", () => {
+  // 4 × 4 with 2 : 1 : 12: three column changes, one of them diagonal.
+  const mixed = validateDimensions(4, 4, { H: 2, D: 1, V: 12 });
+  assert.equal(mixed.valid, false);
+  assert.match(
+    mixed.message,
+    /все переходы между столбцами должны быть горизонтальными/,
+  );
+  assert.equal(solveBoard(4, 4, { ratio: { H: 2, D: 1, V: 12 } }).status, "invalid");
+  for (const [columns, rows, ratio] of [
+    [4, 4, { H: 1, D: 2, V: 12 }],
+    [4, 4, { H: 0, D: 3, V: 12 }],
+    [5, 4, { H: 2, D: 2, V: 15 }],
+    [5, 4, { H: 3, D: 1, V: 15 }],
+    [3, 4, { H: 1, D: 1, V: 9 }],
+    [3, 4, { H: 0, D: 2, V: 9 }],
+    [3, 6, { H: 1, D: 1, V: 16 }],
+  ]) {
+    const validation = validateDimensions(columns, rows, ratio);
+    assert.equal(
+      validation.valid,
+      false,
+      `${columns}x${rows}: ${ratio.H}:${ratio.D}:${ratio.V}`,
+    );
+  }
+
+  // The transposed direction: V + D = b − 1 with a diagonal is impossible.
+  for (const [columns, rows, ratio] of [
+    [4, 4, { H: 12, D: 1, V: 2 }],
+    [4, 5, { H: 15, D: 2, V: 2 }],
+    [6, 5, { H: 25, D: 2, V: 2 }],
+  ]) {
+    const validation = validateDimensions(columns, rows, ratio);
+    assert.equal(
+      validation.valid,
+      false,
+      `${columns}x${rows}: ${ratio.H}:${ratio.D}:${ratio.V}`,
+    );
+    assert.match(
+      validation.message,
+      /все переходы между строками должны быть вертикальными/,
+    );
+  }
+
+  // Equality itself stays legal when every column change is horizontal.
+  assert.equal(validateDimensions(3, 4, { H: 2, D: 0, V: 9 }).valid, true);
+  assert.equal(validateDimensions(5, 4, { H: 4, D: 0, V: 15 }).valid, true);
+
+  // Two-row boards are the genuine exception: in a two-cell column both
+  // cells are edge cells, so a diagonal entry is fine.
+  for (const [columns, ratio, total] of [
+    [3, { H: 0, D: 2, V: 3 }, 1],
+    [4, { H: 2, D: 1, V: 4 }, 3],
+  ]) {
+    const validation = validateDimensions(columns, 2, ratio);
+    assert.equal(validation.valid, true, `${columns}x2`);
+    const enumeration = enumerateCornerRoutes(columns, 2, { ratio });
+    assert.equal(enumeration.complete, true);
+    assert.equal(enumeration.total, total, `${columns}x2`);
+  }
+});
+
+test("route enumeration lists every traversal and stops beyond the limit", () => {
+  const zigzag = enumerateCornerRoutes(3, 4, { ratio: { H: 6, D: 0, V: 5 } });
+  assert.equal(zigzag.valid, true);
+  assert.equal(zigzag.complete, true);
+  assert.equal(zigzag.total, 3);
+  assert.equal(
+    new Set(zigzag.routes.map((path) => JSON.stringify(path))).size,
+    3,
+    "routes are distinct",
+  );
+  for (const path of zigzag.routes)
+    assert.equal(verifyRoute(3, 4, path, { H: 6, D: 0, V: 5 }).valid, true);
+
+  // Greedy ordering: every next route is the closest one to the previous.
+  const distance = (a, b) =>
+    a.reduce(
+      (count, cell, index) =>
+        count + (cell.x !== b[index].x || cell.y !== b[index].y ? 1 : 0),
+      0,
+    );
+  for (let i = 1; i < zigzag.routes.length; i++) {
+    const previous = zigzag.routes[i - 1];
+    const chosen = distance(previous, zigzag.routes[i]);
+    for (const candidate of zigzag.routes.slice(i + 1))
+      assert.ok(distance(previous, candidate) >= chosen, "greedy order");
+  }
+
+  const bands = enumerateCornerRoutes(5, 4, { ratio: { H: 0, D: 14, V: 5 } });
+  assert.equal(bands.complete, true);
+  assert.equal(bands.total, 4);
+  for (const path of bands.routes)
+    assert.equal(
+      verifyRoute(5, 4, path, { H: 0, D: 14, V: 5 }).valid,
+      true,
+    );
+
+  // More than twenty routes: the result is explicitly incomplete and empty.
+  const many = enumerateCornerRoutes(3, 5, { ratio: { H: 1, D: 2, V: 4 } });
+  assert.equal(many.complete, false);
+  assert.equal(many.routes.length, 0);
+  assert.equal(
+    enumerateCornerRoutes(3, 5, { ratio: { H: 1, D: 2, V: 4 }, limit: 5 })
+      .complete,
+    false,
+  );
+  assert.equal(
+    enumerateCornerRoutes(3, 5, {
+      ratio: { H: 1, D: 2, V: 4 },
+      timeLimitMs: 0,
+    }).complete,
+    false,
+  );
+
+  // A rejected board has no routes and the answer is still exact.
+  assert.deepEqual(enumerateCornerRoutes(4, 4, { ratio: { H: 2, D: 1, V: 12 } }), {
+    valid: true,
+    routes: [],
+    total: 0,
+    complete: true,
+  });
+  assert.equal(enumerateCornerRoutes(3, 5, { ratio: null }).valid, false);
+  assert.equal(enumerateCornerRoutes(0, 5, { ratio: { H: 1, D: 2, V: 4 } }).valid, false);
 });
 
 test("every offered board has at least one verified border finish", () => {

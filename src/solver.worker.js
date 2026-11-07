@@ -1,4 +1,5 @@
 import {
+  enumerateCornerRoutes,
   findCornerBoardSuggestions,
   findCornerRatioSuggestions,
   solveCorner,
@@ -17,6 +18,16 @@ self.onmessage = ({ data }) => {
       self.postMessage({
         type: "ratio-suggest",
         ...findCornerRatioSuggestions(data.columns, data.rows, {
+          limit: data.limit,
+        }),
+      });
+      return;
+    }
+    if (data.type === "enumerate") {
+      self.postMessage({
+        type: "enumerate",
+        ...enumerateCornerRoutes(data.columns, data.rows, {
+          ratio: data.ratio,
           limit: data.limit,
         }),
       });

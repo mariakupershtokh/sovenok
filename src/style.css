@@ -1672,3 +1672,16 @@ input[aria-invalid="true"] {
 .suggestions .field-hint {
   margin: 8px 0 0;
 }
+.route-nav {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 11px;
+  margin-bottom: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.route-nav-counter {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: #68745e;
+}
